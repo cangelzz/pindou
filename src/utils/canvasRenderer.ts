@@ -1,0 +1,135 @@
+import { MARD_COLORS } from "../data/mard221";
+import type { CanvasData, GridConfig } from "../types";
+
+export interface RenderOptions {
+  canvasData: CanvasData;
+  cellSize: number;
+  offsetX: number;
+  offsetY: number;
+  viewWidth: number;
+  viewHeight: number;
+}
+
+/**
+ * Render pixel cells onto a canvas 2D context.
+ * Only draws cells visible in the viewport for performance.
+ */
+export function renderPixels(
+  ctx: CanvasRenderingContext2D,
+  opts: RenderOptions
+): void {
+  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight } = opts;
+  const rows = canvasData.length;
+  const cols = rows > 0 ? canvasData[0].length : 0;
+
+  // Calculate visible cell range
+  const startCol = Math.max(0, Math.floor(-offsetX / cellSize));
+  const startRow = Math.max(0, Math.floor(-offsetY / cellSize));
+  const endCol = Math.min(cols, Math.ceil((viewWidth - offsetX) / cellSize));
+  const endRow = Math.min(rows, Math.ceil((viewHeight - offsetY) / cellSize));
+
+  ctx.clearRect(0, 0, viewWidth, viewHeight);
+
+  // Draw checkerboard background for empty cells
+  for (let row = startRow; row < endRow; row++) {
+    for (let col = startCol; col < endCol; col++) {
+      const x = col * cellSize + offsetX;
+      const y = row * cellSize + offsetY;
+      const cell = canvasData[row][col];
+
+      if (cell.colorIndex !== null) {
+        const color = MARD_COLORS[cell.colorIndex];
+        ctx.fillStyle = color.hex || "#FF00FF";
+        ctx.fillRect(x, y, cellSize, cellSize);
+      } else {
+        // Checkerboard for empty
+        const isLight = (row + col) % 2 === 0;
+        ctx.fillStyle = isLight ? "#FFFFFF" : "#F0F0F0";
+        ctx.fillRect(x, y, cellSize, cellSize);
+      }
+    }
+  }
+}
+
+/**
+ * Render grid lines on overlay canvas.
+ * Normal grid lines (1px light gray) + thick group lines every groupSize cells.
+ */
+export function renderGrid(
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  cellSize: number,
+  offsetX: number,
+  offsetY: number,
+  viewWidth: number,
+  viewHeight: number,
+  gridConfig: GridConfig
+): void {
+  ctx.clearRect(0, 0, viewWidth, viewHeight);
+
+  const { groupSize, edgePadding } = gridConfig;
+  const totalCols = canvasWidth;
+  const totalRows = canvasHeight;
+
+  // Draw thin cell borders
+  ctx.strokeStyle = "rgba(0,0,0,0.15)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+
+  for (let col = 0; col <= totalCols; col++) {
+    const x = Math.round(col * cellSize + offsetX) + 0.5;
+    if (x >= 0 && x <= viewWidth) {
+      ctx.moveTo(x, Math.max(0, offsetY));
+      ctx.lineTo(x, Math.min(viewHeight, totalRows * cellSize + offsetY));
+    }
+  }
+  for (let row = 0; row <= totalRows; row++) {
+    const y = Math.round(row * cellSize + offsetY) + 0.5;
+    if (y >= 0 && y <= viewHeight) {
+      ctx.moveTo(Math.max(0, offsetX), y);
+      ctx.lineTo(Math.min(viewWidth, totalCols * cellSize + offsetX), y);
+    }
+  }
+  ctx.stroke();
+
+  // Draw thick group divider lines (5x5 grouping)
+  // The grid starts at edgePadding offset from edge
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  for (let col = edgePadding; col <= totalCols - edgePadding; col += groupSize) {
+    const x = Math.round(col * cellSize + offsetX);
+    if (x >= 0 && x <= viewWidth) {
+      ctx.moveTo(x, Math.max(0, edgePadding * cellSize + offsetY));
+      ctx.lineTo(x, Math.min(viewHeight, (totalRows - edgePadding) * cellSize + offsetY));
+    }
+  }
+  // Right boundary of last group
+  {
+    const x = Math.round((totalCols - edgePadding) * cellSize + offsetX);
+    if (x >= 0 && x <= viewWidth) {
+      ctx.moveTo(x, Math.max(0, edgePadding * cellSize + offsetY));
+      ctx.lineTo(x, Math.min(viewHeight, (totalRows - edgePadding) * cellSize + offsetY));
+    }
+  }
+
+  for (let row = edgePadding; row <= totalRows - edgePadding; row += groupSize) {
+    const y = Math.round(row * cellSize + offsetY);
+    if (y >= 0 && y <= viewHeight) {
+      ctx.moveTo(Math.max(0, edgePadding * cellSize + offsetX), y);
+      ctx.lineTo(Math.min(viewWidth, (totalCols - edgePadding) * cellSize + offsetX), y);
+    }
+  }
+  // Bottom boundary of last group
+  {
+    const y = Math.round((totalRows - edgePadding) * cellSize + offsetY);
+    if (y >= 0 && y <= viewHeight) {
+      ctx.moveTo(Math.max(0, edgePadding * cellSize + offsetX), y);
+      ctx.lineTo(Math.min(viewWidth, (totalCols - edgePadding) * cellSize + offsetX), y);
+    }
+  }
+
+  ctx.stroke();
+}
