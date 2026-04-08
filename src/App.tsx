@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { PixelCanvas } from "./components/Canvas/PixelCanvas";
 import { CanvasToolbar } from "./components/Canvas/CanvasToolbar";
 import { ColorPalette } from "./components/Palette/ColorPalette";
@@ -44,6 +44,28 @@ function App() {
 
   const [newW, setNewW] = useState(52);
   const [newH, setNewH] = useState(52);
+
+  // Resizable right panel
+  const [rightPanelWidth, setRightPanelWidth] = useState(224);
+  const isResizingPanel = useRef(false);
+  const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingPanel.current = true;
+    const startX = e.clientX;
+    const startW = rightPanelWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!isResizingPanel.current) return;
+      const delta = startX - ev.clientX;
+      setRightPanelWidth(Math.max(160, Math.min(500, startW + delta)));
+    };
+    const onUp = () => {
+      isResizingPanel.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [rightPanelWidth]);
 
   // Auto-save every 60 seconds
   const autoSaveRef = useRef(autoSave);
@@ -135,8 +157,17 @@ function App() {
         {/* Center canvas */}
         <PixelCanvas />
 
-        {/* Right panel */}
-        <div className="flex flex-col w-56 border-l bg-white min-h-0">
+        {/* Right panel (resizable) */}
+        <div className="flex min-h-0">
+          {/* Resize handle */}
+          <div
+            className="w-1 cursor-col-resize hover:bg-blue-300 active:bg-blue-400 bg-gray-200 transition-colors"
+            onMouseDown={handlePanelResizeStart}
+          />
+          <div
+            className="flex flex-col border-l bg-white min-h-0"
+            style={{ width: rightPanelWidth }}
+          >
           {/* Tabs */}
           <div className="flex border-b text-xs">
             <button
@@ -265,6 +296,7 @@ function App() {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
 

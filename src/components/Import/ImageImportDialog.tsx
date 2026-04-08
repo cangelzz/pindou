@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { matchImageToMard } from "../../utils/colorMatching";
-import { MARD_COLORS } from "../../data/mard221";
+import { MARD_COLORS, COLOR_GROUPS } from "../../data/mard221";
 import { detectPixelGrid } from "../../utils/gridDetect";
 import type { ColorMatchAlgorithm, CanvasCell } from "../../types";
 import { invoke } from "@tauri-apps/api/core";
@@ -32,11 +32,13 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
   const placeImageOnCanvas = useEditorStore((s) => s.placeImageOnCanvas);
   const setRefImage = useEditorStore((s) => s.setRefImage);
+  const setImportedFileName = useEditorStore((s) => s.setImportedFileName);
   const currentCanvasSize = useEditorStore((s) => s.canvasSize);
 
   const [filePath, setFilePath] = useState<string | null>(null);
   const [maxDimension, setMaxDimension] = useState(52);
   const [algorithm, setAlgorithm] = useState<ColorMatchAlgorithm>("ciede2000");
+  const [colorGroupId, setColorGroupId] = useState("mard221");
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Resize filter: sharp (nearest) vs smooth (lanczos)
@@ -441,7 +443,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         crop,
         sharp: sharpEdge,
       });
-      const matched = matchImageToMard(data.pixels, algorithm);
+      const matched = matchImageToMard(data.pixels, algorithm, colorGroupId);
       setMatchedPreview(matched);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
@@ -500,6 +502,12 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       if (rawPixels) {
         setRefImage(rawPixels, imgW, imgH);
       }
+    }
+
+    // Store original filename for export
+    if (filePath) {
+      const name = filePath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "pindou";
+      setImportedFileName(name);
     }
 
     onClose();
@@ -909,6 +917,22 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             )}
+          </div>
+
+          {/* Color group selector */}
+          <div>
+            <label className="text-xs text-gray-600 mb-1 block">
+              色组范围
+            </label>
+            <select
+              value={colorGroupId}
+              onChange={(e) => { setColorGroupId(e.target.value); setMatchedPreview(null); setActualSize(null); }}
+              className="w-full px-2 py-1 text-xs border rounded"
+            >
+              {COLOR_GROUPS.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
           </div>
 
           {/* Algorithm & resize mode */}

@@ -7,6 +7,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 export function ExportDialog({ onClose }: { onClose: () => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
+  const importedFileName = useEditorStore((s) => s.importedFileName);
 
   const [cellSize, setCellSize] = useState(40);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
@@ -15,6 +16,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const outputWidth = canvasSize.width * cellSize;
   const outputHeight = canvasSize.height * cellSize;
 
+  const defaultExportName = importedFileName
+    ? `${importedFileName}_pindou_export.${format}`
+    : `pindou_export.${format}`;
+
   const handleExport = async () => {
     const outputPath = await save({
       filters: [
@@ -22,7 +27,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           ? { name: "PNG Image", extensions: ["png"] }
           : { name: "JPEG Image", extensions: ["jpg", "jpeg"] },
       ],
-      defaultPath: `pindou_export.${format}`,
+      defaultPath: defaultExportName,
     });
 
     if (!outputPath) return;

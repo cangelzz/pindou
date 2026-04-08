@@ -51,6 +51,7 @@ interface EditorState {
   // File state
   projectPath: string | null;
   isDirty: boolean;
+  importedFileName: string | null;
 
   // Auto-save state
   lastSavedAt: string | null;
@@ -80,6 +81,7 @@ interface EditorState {
     startCol: number,
   ) => void;
   setProjectPath: (path: string | null) => void;
+  setImportedFileName: (name: string | null) => void;
 
   // Save/Load
   saveProject: () => Promise<void>;
@@ -155,6 +157,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   projectPath: null,
   isDirty: false,
+  importedFileName: null,
 
   lastSavedAt: null,
   autoSaveEnabled: true,
@@ -299,6 +302,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setProjectPath: (path) => set({ projectPath: path }),
+  setImportedFileName: (name: string | null) => set({ importedFileName: name }),
 
   saveProject: async () => {
     const state = get();

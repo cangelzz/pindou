@@ -333,3 +333,36 @@ export const MARD_COLORS: MardColor[] = [
   { code: "ZG8", name: "ZG8", hex: "#AB91C0", rgb: [171, 145, 192] },
 
 ];
+
+/** Color group definitions */
+export interface ColorGroup {
+  id: string;
+  name: string;
+  /** Series prefixes included in this group */
+  series: string[];
+}
+
+export const COLOR_GROUPS: ColorGroup[] = [
+  { id: "mard221", name: "MARD 221 (基础)", series: ["A", "B", "C", "D", "E", "F", "G", "H", "M"] },
+  { id: "all", name: "全部 295 色", series: ["A", "B", "C", "D", "E", "F", "G", "H", "M", "P", "Q", "R", "T", "Y", "ZG"] },
+  { id: "solid", name: "纯色 (A-H)", series: ["A", "B", "C", "D", "E", "F", "G", "H"] },
+  { id: "morandi", name: "莫兰迪 (M)", series: ["M"] },
+  { id: "pearl", name: "珠光 (P)", series: ["P"] },
+  { id: "special", name: "特殊效果 (Q/R/T/Y/ZG)", series: ["Q", "R", "T", "Y", "ZG"] },
+];
+
+/** Get color series prefix from code */
+function getSeriesPrefix(code: string): string {
+  const m = code.match(/^([A-Z]+)/);
+  return m ? m[1] : "";
+}
+
+/** Get indices of colors belonging to a group */
+export function getGroupIndices(groupId: string): number[] {
+  const group = COLOR_GROUPS.find((g) => g.id === groupId);
+  if (!group) return MARD_COLORS.map((_, i) => i);
+  return MARD_COLORS
+    .map((c, i) => ({ prefix: getSeriesPrefix(c.code), i }))
+    .filter(({ prefix }) => group.series.includes(prefix))
+    .map(({ i }) => i);
+}
