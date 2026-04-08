@@ -351,18 +351,21 @@ export const COLOR_GROUPS: ColorGroup[] = [
   { id: "special", name: "特殊效果 (Q/R/T/Y/ZG)", series: ["Q", "R", "T", "Y", "ZG"] },
 ];
 
+/** Transparent/empty color codes excluded from auto color matching */
+const TRANSPARENT_CODES = new Set(["H1", "T1"]);
+
 /** Get color series prefix from code */
 function getSeriesPrefix(code: string): string {
   const m = code.match(/^([A-Z]+)/);
   return m ? m[1] : "";
 }
 
-/** Get indices of colors belonging to a group */
+/** Get indices of colors belonging to a group, excluding transparent colors */
 export function getGroupIndices(groupId: string): number[] {
   const group = COLOR_GROUPS.find((g) => g.id === groupId);
-  if (!group) return MARD_COLORS.map((_, i) => i);
+  if (!group) return MARD_COLORS.map((_, i) => i).filter((i) => !TRANSPARENT_CODES.has(MARD_COLORS[i].code));
   return MARD_COLORS
-    .map((c, i) => ({ prefix: getSeriesPrefix(c.code), i }))
-    .filter(({ prefix }) => group.series.includes(prefix))
+    .map((c, i) => ({ prefix: getSeriesPrefix(c.code), i, code: c.code }))
+    .filter(({ prefix, code }) => group.series.includes(prefix) && !TRANSPARENT_CODES.has(code))
     .map(({ i }) => i);
 }

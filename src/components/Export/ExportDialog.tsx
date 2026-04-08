@@ -16,9 +16,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const outputWidth = canvasSize.width * cellSize;
   const outputHeight = canvasSize.height * cellSize;
 
+  const ext = format === "jpeg" ? "jpg" : format;
+
   const defaultExportName = importedFileName
-    ? `${importedFileName}_pindou_export.${format}`
-    : `pindou_export.${format}`;
+    ? `${importedFileName}_pindou_export.${ext}`
+    : `pindou_export.${ext}`;
 
   const handleExport = async () => {
     const outputPath = await save({
