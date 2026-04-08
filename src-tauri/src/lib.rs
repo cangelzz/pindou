@@ -10,6 +10,7 @@ pub fn run() {
             commands::image_import::preview_image,
             commands::image_import::import_image,
             commands::image_export::export_image,
+            commands::image_export::export_preview,
             commands::project::save_project,
             commands::project::load_project,
             commands::project::get_autosave_dir,

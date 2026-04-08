@@ -12,52 +12,93 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const [cellSize, setCellSize] = useState(40);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
   const [isExporting, setIsExporting] = useState(false);
+  const [exportBlueprint, setExportBlueprint] = useState(true);
+  const [exportPreview, setExportPreview] = useState(false);
 
   const outputWidth = canvasSize.width * cellSize;
   const outputHeight = canvasSize.height * cellSize;
 
   const ext = format === "jpeg" ? "jpg" : format;
+  const baseName = importedFileName || "pindou";
 
-  const defaultExportName = importedFileName
-    ? `${importedFileName}_pindou_export.${ext}`
-    : `pindou_export.${ext}`;
+  const buildCells = () =>
+    canvasData.map((row) =>
+      row.map((cell) => {
+        if (cell.colorIndex === null) return null;
+        const c = MARD_COLORS[cell.colorIndex];
+        return c
+          ? { color_code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }
+          : null;
+      })
+    );
 
   const handleExport = async () => {
-    const outputPath = await save({
-      filters: [
-        format === "png"
-          ? { name: "PNG Image", extensions: ["png"] }
-          : { name: "JPEG Image", extensions: ["jpg", "jpeg"] },
-      ],
-      defaultPath: defaultExportName,
-    });
+    if (!exportBlueprint && !exportPreview) return;
 
-    if (!outputPath) return;
+    // Ask user to pick a folder (use save dialog for the blueprint path)
+    let blueprintPath: string | null = null;
+    if (exportBlueprint) {
+      blueprintPath = await save({
+        filters: [
+          format === "png"
+            ? { name: "PNG Image", extensions: ["png"] }
+            : { name: "JPEG Image", extensions: ["jpg", "jpeg"] },
+        ],
+        defaultPath: `${baseName}_pindou_export.${ext}`,
+      });
+      if (!blueprintPath) return;
+    }
 
     setIsExporting(true);
     try {
-      const cells = canvasData.map((row) =>
-        row.map((cell) => {
-          if (cell.colorIndex === null) return null;
-          const c = MARD_COLORS[cell.colorIndex];
-          return c
-            ? { color_code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }
-            : null;
-        })
-      );
+      const cells = buildCells();
+      const results: string[] = [];
 
-      await invoke("export_image", {
-        request: {
-          width: canvasSize.width,
-          height: canvasSize.height,
-          cell_size: cellSize,
-          cells,
-          output_path: outputPath,
-          format,
-        },
-      });
+      if (exportBlueprint && blueprintPath) {
+        await invoke("export_image", {
+          request: {
+            width: canvasSize.width,
+            height: canvasSize.height,
+            cell_size: cellSize,
+            cells,
+            output_path: blueprintPath,
+            format,
+          },
+        });
+        results.push(`图纸: ${blueprintPath}`);
+      }
 
-      alert(`导出成功: ${outputPath}`);
+      if (exportPreview) {
+        // Derive preview path from blueprint path or ask separately
+        let previewPath: string;
+        if (blueprintPath) {
+          // Replace extension suffix with _preview.jpg
+          previewPath = blueprintPath.replace(/\.[^.]+$/, "_preview.jpg");
+        } else {
+          const selected = await save({
+            filters: [{ name: "JPEG Image", extensions: ["jpg", "jpeg"] }],
+            defaultPath: `${baseName}_pindou_preview.jpg`,
+          });
+          if (!selected) {
+            setIsExporting(false);
+            return;
+          }
+          previewPath = selected;
+        }
+
+        await invoke("export_preview", {
+          request: {
+            width: canvasSize.width,
+            height: canvasSize.height,
+            pixel_size: cellSize,
+            cells,
+            output_path: previewPath,
+          },
+        });
+        results.push(`效果图: ${previewPath}`);
+      }
+
+      alert(`导出成功:\n${results.join("\n")}`);
       onClose();
     } catch (e) {
       alert(`导出失败: ${e}`);
@@ -121,13 +162,34 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <p className="text-[10px] text-gray-500">
-            每个格子将标注 MARD 色号，方便对照购买拼豆。
-          </p>
+          {/* Export options */}
+          <div>
+            <label className="text-xs text-gray-600 mb-1 block">导出内容</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exportBlueprint}
+                  onChange={(e) => setExportBlueprint(e.target.checked)}
+                  className="w-3.5 h-3.5"
+                />
+                <span>📋 图纸（带网格线、色号、坐标、色块统计）</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exportPreview}
+                  onChange={(e) => setExportPreview(e.target.checked)}
+                  className="w-3.5 h-3.5"
+                />
+                <span>🎨 效果图（模拟烫平后的样子，纯色块无辅助线）</span>
+              </label>
+            </div>
+          </div>
 
           <button
             onClick={handleExport}
-            disabled={isExporting}
+            disabled={isExporting || (!exportBlueprint && !exportPreview)}
             className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-40"
           >
             {isExporting ? "导出中..." : "导出"}

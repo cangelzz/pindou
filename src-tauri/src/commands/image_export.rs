@@ -278,3 +278,51 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
 
     Ok(request.output_path)
 }
+
+#[derive(Deserialize)]
+pub struct PreviewRequest {
+    pub width: u32,
+    pub height: u32,
+    pub pixel_size: u32,
+    pub cells: Vec<Vec<Option<CellData>>>,
+    pub output_path: String,
+}
+
+/// Export a flat preview image — just colored pixels, no grid/text/legend
+#[tauri::command]
+pub fn export_preview(request: PreviewRequest) -> Result<String, String> {
+    let ps = request.pixel_size;
+    let img_width = request.width * ps;
+    let img_height = request.height * ps;
+    let mut img = RgbaImage::new(img_width, img_height);
+
+    // Fill with white
+    for pixel in img.pixels_mut() {
+        *pixel = Rgba([255, 255, 255, 255]);
+    }
+
+    for (row_idx, row) in request.cells.iter().enumerate() {
+        for (col_idx, cell) in row.iter().enumerate() {
+            if let Some(cd) = cell {
+                let x0 = col_idx as u32 * ps;
+                let y0 = row_idx as u32 * ps;
+                for dy in 0..ps {
+                    for dx in 0..ps {
+                        let px = x0 + dx;
+                        let py = y0 + dy;
+                        if px < img_width && py < img_height {
+                            img.put_pixel(px, py, Rgba([cd.r, cd.g, cd.b, 255]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Always save as JPEG (convert RGBA -> RGB)
+    let rgb_img: image::RgbImage = image::DynamicImage::ImageRgba8(img).to_rgb8();
+    rgb_img.save_with_format(&request.output_path, image::ImageFormat::Jpeg)
+        .map_err(|e| format!("Failed to save preview: {}", e))?;
+
+    Ok(request.output_path)
+}
