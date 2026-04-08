@@ -23,6 +23,17 @@ interface EditorState {
   canvasData: CanvasData;
   gridConfig: GridConfig;
 
+  // Reference image layer (resized original)
+  refImagePixels: number[] | null; // flat RGB array
+  refImageWidth: number;
+  refImageHeight: number;
+  refImageVisible: boolean;
+  refImageOpacity: number; // 0-1
+
+  // Bead layer
+  beadLayerVisible: boolean;
+  beadLayerOpacity: number; // 0-1
+
   // View state
   cellSize: number;
   offsetX: number;
@@ -59,6 +70,15 @@ interface EditorState {
   undo: () => void;
   redo: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
+  placeImageOnCanvas: (
+    imageData: CanvasData,
+    imageW: number,
+    imageH: number,
+    canvasW: number,
+    canvasH: number,
+    startRow: number,
+    startCol: number,
+  ) => void;
   setProjectPath: (path: string | null) => void;
 
   // Save/Load
@@ -72,6 +92,16 @@ interface EditorState {
   createSnapshot: (label: string) => Promise<void>;
   loadSnapshots: () => Promise<void>;
   restoreSnapshot: (path: string) => Promise<void>;
+
+  // Reference image
+  setRefImage: (pixels: number[], width: number, height: number) => void;
+  clearRefImage: () => void;
+  setRefImageVisible: (visible: boolean) => void;
+  setRefImageOpacity: (opacity: number) => void;
+
+  // Bead layer
+  setBeadLayerVisible: (visible: boolean) => void;
+  setBeadLayerOpacity: (opacity: number) => void;
 }
 
 function createEmptyCanvas(width: number, height: number): CanvasData {
@@ -102,6 +132,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   canvasSize: { width: 52, height: 52 },
   canvasData: createEmptyCanvas(52, 52),
   gridConfig: DEFAULT_GRID_CONFIG,
+
+  refImagePixels: null,
+  refImageWidth: 0,
+  refImageHeight: 0,
+  refImageVisible: true,
+  refImageOpacity: 0.3,
+
+  beadLayerVisible: true,
+  beadLayerOpacity: 1,
 
   cellSize: 16,
   offsetX: 0,
@@ -239,6 +278,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
+  placeImageOnCanvas: (imageData, imageW, imageH, canvasW, canvasH, startRow, startCol) => {
+    const canvas = createEmptyCanvas(canvasW, canvasH);
+    for (let r = 0; r < imageH; r++) {
+      for (let c = 0; c < imageW; c++) {
+        const tr = startRow + r;
+        const tc = startCol + c;
+        if (tr >= 0 && tr < canvasH && tc >= 0 && tc < canvasW) {
+          canvas[tr][tc] = imageData[r][c];
+        }
+      }
+    }
+    set({
+      canvasData: canvas,
+      canvasSize: { width: canvasW, height: canvasH },
+      undoStack: [],
+      redoStack: [],
+      isDirty: false,
+    });
+  },
+
   setProjectPath: (path) => set({ projectPath: path }),
 
   saveProject: async () => {
@@ -338,4 +397,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       offsetY: 0,
     });
   },
+
+  setRefImage: (pixels, width, height) =>
+    set({ refImagePixels: pixels, refImageWidth: width, refImageHeight: height }),
+  clearRefImage: () =>
+    set({ refImagePixels: null, refImageWidth: 0, refImageHeight: 0 }),
+  setRefImageVisible: (visible) => set({ refImageVisible: visible }),
+  setRefImageOpacity: (opacity) => set({ refImageOpacity: Math.max(0, Math.min(1, opacity)) }),
+
+  setBeadLayerVisible: (visible) => set({ beadLayerVisible: visible }),
+  setBeadLayerOpacity: (opacity) => set({ beadLayerOpacity: Math.max(0, Math.min(1, opacity)) }),
 }));

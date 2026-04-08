@@ -29,6 +29,9 @@ interface CropRect {
 
 export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
+  const placeImageOnCanvas = useEditorStore((s) => s.placeImageOnCanvas);
+  const setRefImage = useEditorStore((s) => s.setRefImage);
+  const currentCanvasSize = useEditorStore((s) => s.canvasSize);
 
   const [filePath, setFilePath] = useState<string | null>(null);
   const [maxDimension, setMaxDimension] = useState(52);
@@ -38,12 +41,19 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   // Resize filter: sharp (nearest) vs smooth (lanczos)
   const [sharpEdge, setSharpEdge] = useState(true);
 
+  // Canvas size (independent from image size)
+  const [canvasW, setCanvasW] = useState(currentCanvasSize.width);
+  const [canvasH, setCanvasH] = useState(currentCanvasSize.height);
+  const [useCustomCanvas, setUseCustomCanvas] = useState(false);
+  const [placement, setPlacement] = useState<"center" | "top-left">("center");
+
   // Image preview for crop selection
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
 
   // Color-matched result
   const [matchedPreview, setMatchedPreview] = useState<number[] | null>(null);
+  const [rawPixels, setRawPixels] = useState<number[] | null>(null);
   const [actualSize, setActualSize] = useState<{ width: number; height: number } | null>(null);
 
   // Grid overlay & magnifier
@@ -407,6 +417,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       });
       const matched = matchImageToMard(data.pixels, algorithm);
       setMatchedPreview(matched);
+      setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
     } catch (e) {
       alert(`导入失败: ${e}`);
@@ -418,18 +429,53 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const handleConfirm = () => {
     if (!matchedPreview || !actualSize) return;
 
-    const { width, height } = actualSize;
-    const canvasData: CanvasCell[][] = [];
-    for (let row = 0; row < height; row++) {
+    const { width: imgW, height: imgH } = actualSize;
+    const imageData: CanvasCell[][] = [];
+    for (let row = 0; row < imgH; row++) {
       const rowData: CanvasCell[] = [];
-      for (let col = 0; col < width; col++) {
-        const idx = row * width + col;
+      for (let col = 0; col < imgW; col++) {
+        const idx = row * imgW + col;
         rowData.push({ colorIndex: matchedPreview[idx] });
       }
-      canvasData.push(rowData);
+      imageData.push(rowData);
     }
 
-    loadCanvasData(canvasData, { width, height });
+    if (useCustomCanvas) {
+      const cw = Math.max(canvasW, 4);
+      const ch = Math.max(canvasH, 4);
+      let startRow = 0;
+      let startCol = 0;
+      if (placement === "center") {
+        startRow = Math.floor((ch - imgH) / 2);
+        startCol = Math.floor((cw - imgW) / 2);
+      }
+      placeImageOnCanvas(imageData, imgW, imgH, cw, ch, startRow, startCol);
+
+      // Reference image also placed on canvas-sized buffer
+      if (rawPixels) {
+        const refBuf: number[] = new Array(cw * ch * 3).fill(255);
+        for (let r = 0; r < imgH; r++) {
+          for (let c = 0; c < imgW; c++) {
+            const tr = startRow + r;
+            const tc = startCol + c;
+            if (tr >= 0 && tr < ch && tc >= 0 && tc < cw) {
+              const srcIdx = (r * imgW + c) * 3;
+              const dstIdx = (tr * cw + tc) * 3;
+              refBuf[dstIdx] = rawPixels[srcIdx];
+              refBuf[dstIdx + 1] = rawPixels[srcIdx + 1];
+              refBuf[dstIdx + 2] = rawPixels[srcIdx + 2];
+            }
+          }
+        }
+        setRefImage(refBuf, cw, ch);
+      }
+    } else {
+      loadCanvasData(imageData, { width: imgW, height: imgH });
+      if (rawPixels) {
+        setRefImage(rawPixels, imgW, imgH);
+      }
+    }
+
     onClose();
   };
 
@@ -733,8 +779,95 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
             </div>
             {actualSize && (
               <p className="text-xs text-green-600 mt-1">
-                实际尺寸: {actualSize.width}×{actualSize.height}
+                图片尺寸: {actualSize.width}×{actualSize.height}
               </p>
+            )}
+          </div>
+
+          {/* Canvas size (independent) */}
+          <div>
+            <label className="flex items-center gap-1 text-xs text-gray-600 mb-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useCustomCanvas}
+                onChange={(e) => setUseCustomCanvas(e.target.checked)}
+                className="w-3 h-3"
+              />
+              自定义画布尺寸（图片可小于画布）
+            </label>
+            {useCustomCanvas && (
+              <div className="flex flex-col gap-1.5 ml-4">
+                <div className="flex gap-2 mb-1">
+                  {[
+                    { l: "52×52", w: 52, h: 52 },
+                    { l: "104×104", w: 104, h: 104 },
+                  ].map((p) => (
+                    <button
+                      key={p.l}
+                      onClick={() => { setCanvasW(p.w); setCanvasH(p.h); }}
+                      className={`px-2 py-0.5 text-xs rounded border ${
+                        canvasW === p.w && canvasH === p.h
+                          ? "bg-blue-100 border-blue-400"
+                          : "hover:bg-gray-100"
+                      }`}
+                    >
+                      {p.l}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2 items-center text-xs">
+                  <span>宽</span>
+                  <input
+                    type="number"
+                    min={4}
+                    max={256}
+                    value={canvasW}
+                    onChange={(e) => setCanvasW(Number(e.target.value))}
+                    className="w-14 px-1 py-0.5 border rounded text-center"
+                  />
+                  <span>高</span>
+                  <input
+                    type="number"
+                    min={4}
+                    max={256}
+                    value={canvasH}
+                    onChange={(e) => setCanvasH(Number(e.target.value))}
+                    className="w-14 px-1 py-0.5 border rounded text-center"
+                  />
+                </div>
+                <div className="flex gap-2 items-center text-xs">
+                  <span className="text-gray-500">放置位置:</span>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="placement"
+                      checked={placement === "center"}
+                      onChange={() => setPlacement("center")}
+                    />
+                    居中
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="placement"
+                      checked={placement === "top-left"}
+                      onChange={() => setPlacement("top-left")}
+                    />
+                    左上角
+                  </label>
+                </div>
+                {actualSize && (
+                  <p className={`text-xs ${
+                    actualSize.width > canvasW || actualSize.height > canvasH
+                      ? "text-red-500"
+                      : "text-green-600"
+                  }`}>
+                    {actualSize.width > canvasW || actualSize.height > canvasH
+                      ? `⚠ 图片(${actualSize.width}×${actualSize.height})超出画布(${canvasW}×${canvasH})，会被裁剪`
+                      : `画布 ${canvasW}×${canvasH}，图片 ${actualSize.width}×${actualSize.height}`}
+                  </p>
+                )}
+              </div>
             )}
           </div>
 

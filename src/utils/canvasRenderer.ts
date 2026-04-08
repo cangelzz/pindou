@@ -30,7 +30,6 @@ export function renderPixels(
 
   ctx.clearRect(0, 0, viewWidth, viewHeight);
 
-  // Draw checkerboard background for empty cells
   for (let row = startRow; row < endRow; row++) {
     for (let col = startCol; col < endCol; col++) {
       const x = col * cellSize + offsetX;
@@ -41,12 +40,8 @@ export function renderPixels(
         const color = MARD_COLORS[cell.colorIndex];
         ctx.fillStyle = color.hex || "#FF00FF";
         ctx.fillRect(x, y, cellSize, cellSize);
-      } else {
-        // Checkerboard for empty
-        const isLight = (row + col) % 2 === 0;
-        ctx.fillStyle = isLight ? "#FFFFFF" : "#F0F0F0";
-        ctx.fillRect(x, y, cellSize, cellSize);
       }
+      // Empty cells are transparent (no fill)
     }
   }
 }

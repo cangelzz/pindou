@@ -13,7 +13,7 @@ function App() {
   const [showNewCanvas, setShowNewCanvas] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
-  const [rightTab, setRightTab] = useState<"palette" | "stats">("palette");
+  const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
   const isDirty = useEditorStore((s) => s.isDirty);
@@ -27,6 +27,16 @@ function App() {
   const autoSave = useEditorStore((s) => s.autoSave);
   const canvasSize = useEditorStore((s) => s.canvasSize);
   const zoom = useEditorStore((s) => s.zoom);
+  const refImagePixels = useEditorStore((s) => s.refImagePixels);
+  const refImageVisible = useEditorStore((s) => s.refImageVisible);
+  const refImageOpacity = useEditorStore((s) => s.refImageOpacity);
+  const setRefImageVisible = useEditorStore((s) => s.setRefImageVisible);
+  const setRefImageOpacity = useEditorStore((s) => s.setRefImageOpacity);
+  const clearRefImage = useEditorStore((s) => s.clearRefImage);
+  const beadLayerVisible = useEditorStore((s) => s.beadLayerVisible);
+  const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
+  const setBeadLayerVisible = useEditorStore((s) => s.setBeadLayerVisible);
+  const setBeadLayerOpacity = useEditorStore((s) => s.setBeadLayerOpacity);
   const snapshots = useEditorStore((s) => s.snapshots);
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
@@ -140,6 +150,16 @@ function App() {
               色板
             </button>
             <button
+              onClick={() => setRightTab("layers")}
+              className={`flex-1 py-1.5 ${
+                rightTab === "layers"
+                  ? "border-b-2 border-blue-500 text-blue-600 font-semibold"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              图层
+            </button>
+            <button
               onClick={() => setRightTab("stats")}
               className={`flex-1 py-1.5 ${
                 rightTab === "stats"
@@ -153,7 +173,97 @@ function App() {
 
           {/* Panel content */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {rightTab === "palette" ? <ColorPalette /> : <BeadCounter />}
+            {rightTab === "palette" && <ColorPalette />}
+            {rightTab === "stats" && <BeadCounter />}
+            {rightTab === "layers" && (
+              <div className="p-3 flex flex-col gap-3 text-xs">
+                {/* Bead layer */}
+                <div className="border rounded p-2 bg-blue-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">🎨 拼豆层</span>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={beadLayerVisible}
+                        onChange={(e) => setBeadLayerVisible(e.target.checked)}
+                        className="w-3 h-3"
+                      />
+                      可见
+                    </label>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-gray-500 w-10">透明度</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={Math.round(beadLayerOpacity * 100)}
+                      onChange={(e) => setBeadLayerOpacity(Number(e.target.value) / 100)}
+                      className="flex-1"
+                    />
+                    <span className="text-gray-500 w-8 text-right">
+                      {Math.round(beadLayerOpacity * 100)}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Reference image layer */}
+                <div className={`border rounded p-2 ${refImagePixels ? 'bg-green-50' : 'bg-gray-50'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">🖼️ 参考图层</span>
+                    {refImagePixels ? (
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={refImageVisible}
+                          onChange={(e) => setRefImageVisible(e.target.checked)}
+                          className="w-3 h-3"
+                        />
+                        可见
+                      </label>
+                    ) : (
+                      <span className="text-gray-400">无</span>
+                    )}
+                  </div>
+
+                  {refImagePixels ? (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 w-10">透明度</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={Math.round(refImageOpacity * 100)}
+                          onChange={(e) => setRefImageOpacity(Number(e.target.value) / 100)}
+                          className="flex-1"
+                        />
+                        <span className="text-gray-500 w-8 text-right">
+                          {Math.round(refImageOpacity * 100)}%
+                        </span>
+                      </div>
+                      <button
+                        onClick={clearRefImage}
+                        className="text-red-400 hover:text-red-600 underline self-start"
+                      >
+                        移除参考图
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 mt-1">导入图片时自动设置</p>
+                  )}
+                </div>
+
+                {/* Grid layer */}
+                <div className="border rounded p-2 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">📐 网格层</span>
+                    <span className="text-gray-400">最上层覆盖</span>
+                  </div>
+                  <p className="text-gray-500 mt-1">5×5分组网格线</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

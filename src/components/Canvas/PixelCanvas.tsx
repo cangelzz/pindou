@@ -5,6 +5,7 @@ import { MARD_COLORS } from "../../data/mard221";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
+  const refCanvasRef = useRef<HTMLCanvasElement>(null);
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -23,6 +24,17 @@ export function PixelCanvas() {
   const setSelectedColor = useEditorStore((s) => s.setSelectedColor);
   const setTool = useEditorStore((s) => s.setTool);
 
+  // Reference image layer
+  const refImagePixels = useEditorStore((s) => s.refImagePixels);
+  const refImageWidth = useEditorStore((s) => s.refImageWidth);
+  const refImageHeight = useEditorStore((s) => s.refImageHeight);
+  const refImageVisible = useEditorStore((s) => s.refImageVisible);
+  const refImageOpacity = useEditorStore((s) => s.refImageOpacity);
+
+  // Bead layer controls
+  const beadLayerVisible = useEditorStore((s) => s.beadLayerVisible);
+  const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
+
   // Track dragging state
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
@@ -32,14 +44,15 @@ export function PixelCanvas() {
   const resize = useCallback(() => {
     const container = containerRef.current;
     const pc = pixelCanvasRef.current;
+    const rc = refCanvasRef.current;
     const gc = gridCanvasRef.current;
-    if (!container || !pc || !gc) return;
+    if (!container || !pc || !rc || !gc) return;
 
     const w = container.clientWidth;
     const h = container.clientHeight;
     const dpr = window.devicePixelRatio || 1;
 
-    for (const c of [pc, gc]) {
+    for (const c of [pc, rc, gc]) {
       c.width = w * dpr;
       c.height = h * dpr;
       c.style.width = `${w}px`;
@@ -62,6 +75,11 @@ export function PixelCanvas() {
     const w = containerRef.current.clientWidth;
     const h = containerRef.current.clientHeight;
 
+    ctx.clearRect(0, 0, w, h);
+
+    if (!beadLayerVisible) return;
+
+    ctx.globalAlpha = beadLayerOpacity;
     renderPixels(ctx, {
       canvasData,
       cellSize,
@@ -70,7 +88,40 @@ export function PixelCanvas() {
       viewWidth: w,
       viewHeight: h,
     });
-  }, [canvasData, cellSize, offsetX, offsetY]);
+    ctx.globalAlpha = 1;
+  }, [canvasData, cellSize, offsetX, offsetY, beadLayerVisible, beadLayerOpacity]);
+
+  // Render reference image layer
+  useEffect(() => {
+    const ctx = refCanvasRef.current?.getContext("2d");
+    if (!ctx || !containerRef.current) return;
+
+    const w = containerRef.current.clientWidth;
+    const h = containerRef.current.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!refImagePixels || !refImageVisible || refImageOpacity <= 0) return;
+
+    // Build an ImageData from the RGB pixels, map each pixel to one cell
+    ctx.globalAlpha = refImageOpacity;
+    for (let row = 0; row < refImageHeight; row++) {
+      for (let col = 0; col < refImageWidth; col++) {
+        const x = col * cellSize + offsetX;
+        const y = row * cellSize + offsetY;
+
+        // Cull off-screen
+        if (x + cellSize < 0 || x > w || y + cellSize < 0 || y > h) continue;
+
+        const idx = (row * refImageWidth + col) * 3;
+        const r = refImagePixels[idx];
+        const g = refImagePixels[idx + 1];
+        const b = refImagePixels[idx + 2];
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x, y, cellSize, cellSize);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }, [refImagePixels, refImageWidth, refImageHeight, refImageVisible, refImageOpacity, cellSize, offsetX, offsetY]);
 
   // Render grid layer
   useEffect(() => {
@@ -237,14 +288,26 @@ export function PixelCanvas() {
       {/* Canvas area */}
       <div
         ref={containerRef}
-        className="relative flex-1 overflow-hidden bg-gray-200"
-        style={{ cursor }}
+        className="relative flex-1 overflow-hidden"
+        style={{
+          cursor,
+          backgroundColor: "#e5e5e5",
+          backgroundImage:
+            "linear-gradient(45deg, #d0d0d0 25%, transparent 25%), linear-gradient(-45deg, #d0d0d0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d0d0d0 75%), linear-gradient(-45deg, transparent 75%, #d0d0d0 75%)",
+          backgroundSize: "16px 16px",
+          backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+        }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onContextMenu={(e) => e.preventDefault()}
       >
+        <canvas
+          ref={refCanvasRef}
+          className="absolute inset-0"
+          style={{ imageRendering: "pixelated" }}
+        />
         <canvas
           ref={pixelCanvasRef}
           className="absolute inset-0"
