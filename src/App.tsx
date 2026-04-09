@@ -33,10 +33,16 @@ function App() {
   const setRefImageVisible = useEditorStore((s) => s.setRefImageVisible);
   const setRefImageOpacity = useEditorStore((s) => s.setRefImageOpacity);
   const clearRefImage = useEditorStore((s) => s.clearRefImage);
-  const beadLayerVisible = useEditorStore((s) => s.beadLayerVisible);
-  const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
-  const setBeadLayerVisible = useEditorStore((s) => s.setBeadLayerVisible);
-  const setBeadLayerOpacity = useEditorStore((s) => s.setBeadLayerOpacity);
+  const layers = useEditorStore((s) => s.layers);
+  const activeLayerId = useEditorStore((s) => s.activeLayerId);
+  const addLayer = useEditorStore((s) => s.addLayer);
+  const removeLayer = useEditorStore((s) => s.removeLayer);
+  const setActiveLayer = useEditorStore((s) => s.setActiveLayer);
+  const setLayerVisible = useEditorStore((s) => s.setLayerVisible);
+  const setLayerOpacity = useEditorStore((s) => s.setLayerOpacity);
+  const duplicateLayer = useEditorStore((s) => s.duplicateLayer);
+  const moveLayer = useEditorStore((s) => s.moveLayer);
+  const renameLayer = useEditorStore((s) => s.renameLayer);
   const gridConfig = useEditorStore((s) => s.gridConfig);
   const setGridStartCoords = useEditorStore((s) => s.setGridStartCoords);
   const snapshots = useEditorStore((s) => s.snapshots);
@@ -209,108 +215,153 @@ function App() {
             {rightTab === "palette" && <ColorPalette />}
             {rightTab === "stats" && <BeadCounter />}
             {rightTab === "layers" && (
-              <div className="p-3 flex flex-col gap-3 text-xs">
-                {/* Bead layer */}
-                <div className="border rounded p-2 bg-blue-50">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">🎨 拼豆层</span>
-                    <label className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={beadLayerVisible}
-                        onChange={(e) => setBeadLayerVisible(e.target.checked)}
-                        className="w-3 h-3"
-                      />
-                      可见
-                    </label>
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="text-gray-500 w-10">透明度</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={Math.round(beadLayerOpacity * 100)}
-                      onChange={(e) => setBeadLayerOpacity(Number(e.target.value) / 100)}
-                      className="flex-1"
-                    />
-                    <span className="text-gray-500 w-8 text-right">
-                      {Math.round(beadLayerOpacity * 100)}%
-                    </span>
-                  </div>
+              <div className="p-2 flex flex-col gap-2 text-xs overflow-y-auto">
+                {/* Bead layers (top = rendered last = highest) */}
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-gray-600">拼豆图层</span>
+                  <button
+                    onClick={() => {
+                      const name = prompt("图层名称", `图层 ${layers.length + 1}`);
+                      if (name !== null) addLayer(name || `图层 ${layers.length + 1}`);
+                    }}
+                    className="px-1.5 py-0.5 bg-blue-500 text-white rounded text-[10px] hover:bg-blue-600"
+                  >
+                    + 新建图层
+                  </button>
                 </div>
 
-                {/* Reference image layer */}
-                <div className={`border rounded p-2 ${refImagePixels ? 'bg-green-50' : 'bg-gray-50'}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">🖼️ 参考图层</span>
-                    {refImagePixels ? (
-                      <label className="flex items-center gap-1 cursor-pointer">
+                {[...layers].reverse().map((layer) => {
+                  const isActive = layer.id === activeLayerId;
+                  return (
+                    <div
+                      key={layer.id}
+                      className={`border rounded p-1.5 ${isActive ? "bg-blue-50 border-blue-300" : "bg-gray-50"}`}
+                    >
+                      <div className="flex items-center gap-1">
                         <input
                           type="checkbox"
-                          checked={refImageVisible}
-                          onChange={(e) => setRefImageVisible(e.target.checked)}
+                          checked={layer.visible}
+                          onChange={(e) => setLayerVisible(layer.id, e.target.checked)}
                           className="w-3 h-3"
                         />
-                        可见
-                      </label>
-                    ) : (
-                      <span className="text-gray-400">无</span>
-                    )}
-                  </div>
+                        <button
+                          onClick={() => setActiveLayer(layer.id)}
+                          onDoubleClick={() => {
+                            const name = prompt("重命名图层", layer.name);
+                            if (name !== null && name.trim()) renameLayer(layer.id, name.trim());
+                          }}
+                          className={`flex-1 text-left truncate ${isActive ? "font-semibold text-blue-700" : "text-gray-600"}`}
+                          title="双击重命名"
+                        >
+                          {layer.name}
+                        </button>
+                        {isActive && <span className="text-[9px] text-blue-500">✎</span>}
+                      </div>
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          value={Math.round(layer.opacity * 100)}
+                          onChange={(e) => setLayerOpacity(layer.id, Number(e.target.value) / 100)}
+                          className="flex-1 h-2"
+                        />
+                        <span className="text-gray-400 w-7 text-right text-[10px]">
+                          {Math.round(layer.opacity * 100)}%
+                        </span>
+                      </div>
+                      <div className="flex gap-0.5 mt-1">
+                        <button
+                          onClick={() => moveLayer(layer.id, "up")}
+                          className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
+                          title="上移"
+                        >↑</button>
+                        <button
+                          onClick={() => moveLayer(layer.id, "down")}
+                          className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
+                          title="下移"
+                        >↓</button>
+                        <button
+                          onClick={() => duplicateLayer(layer.id)}
+                          className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
+                          title="复制"
+                        >复制</button>
+                        {layers.length > 1 && (
+                          <button
+                            onClick={() => removeLayer(layer.id)}
+                            className="px-1 py-0 border rounded text-[9px] text-red-400 hover:bg-red-50"
+                            title="删除"
+                          >删除</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
 
+                <div className="border-t my-1" />
+
+                {/* Reference image layer */}
+                <div className={`border rounded p-1.5 ${refImagePixels ? 'bg-green-50' : 'bg-gray-50'}`}>
+                  <div className="flex items-center gap-1">
+                    {refImagePixels ? (
+                      <input
+                        type="checkbox"
+                        checked={refImageVisible}
+                        onChange={(e) => setRefImageVisible(e.target.checked)}
+                        className="w-3 h-3"
+                      />
+                    ) : (
+                      <input type="checkbox" disabled className="w-3 h-3 opacity-30" />
+                    )}
+                    <span className="font-semibold text-gray-600">🖼️ 参考图 (不导出)</span>
+                  </div>
                   {refImagePixels ? (
-                    <div className="mt-2 flex flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500 w-10">透明度</span>
+                    <>
+                      <div className="flex items-center gap-1 mt-1">
                         <input
                           type="range"
                           min={0}
                           max={100}
                           value={Math.round(refImageOpacity * 100)}
                           onChange={(e) => setRefImageOpacity(Number(e.target.value) / 100)}
-                          className="flex-1"
+                          className="flex-1 h-2"
                         />
-                        <span className="text-gray-500 w-8 text-right">
+                        <span className="text-gray-400 w-7 text-right text-[10px]">
                           {Math.round(refImageOpacity * 100)}%
                         </span>
                       </div>
                       <button
                         onClick={clearRefImage}
-                        className="text-red-400 hover:text-red-600 underline self-start"
+                        className="text-[10px] text-red-400 hover:text-red-600 underline mt-1"
                       >
-                        移除参考图
+                        移除
                       </button>
-                    </div>
+                    </>
                   ) : (
-                    <p className="text-gray-400 mt-1">导入图片时自动设置</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">导入图片时自动设置</p>
                   )}
                 </div>
 
+                <div className="border-t my-1" />
+
                 {/* Grid layer */}
-                <div className="border rounded p-2 bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold">📐 网格层</span>
-                    <span className="text-gray-400">最上层覆盖</span>
-                  </div>
-                  <p className="text-gray-500 mt-1">5×5分组网格线</p>
-                  <div className="mt-2 flex flex-col gap-1">
+                <div className="border rounded p-1.5 bg-gray-50">
+                  <span className="font-semibold text-gray-600">📐 网格</span>
+                  <div className="mt-1 flex flex-col gap-1">
                     <div className="flex items-center gap-1">
-                      <span className="text-gray-500 w-16">起始列号</span>
+                      <span className="text-gray-500 w-12">起始列</span>
                       <input
                         type="number"
                         value={gridConfig.startX}
                         onChange={(e) => setGridStartCoords(Number(e.target.value), gridConfig.startY)}
-                        className="w-14 px-1 py-0.5 border rounded text-center"
+                        className="w-12 px-1 py-0 border rounded text-center text-[10px]"
                       />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500 w-16">起始行号</span>
+                      <span className="text-gray-500 w-12">起始行</span>
                       <input
                         type="number"
                         value={gridConfig.startY}
                         onChange={(e) => setGridStartCoords(gridConfig.startX, Number(e.target.value))}
-                        className="w-14 px-1 py-0.5 border rounded text-center"
+                        className="w-12 px-1 py-0 border rounded text-center text-[10px]"
                       />
                     </div>
                   </div>

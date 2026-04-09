@@ -32,9 +32,9 @@ export function PixelCanvas() {
   const refImageVisible = useEditorStore((s) => s.refImageVisible);
   const refImageOpacity = useEditorStore((s) => s.refImageOpacity);
 
-  // Bead layer controls
-  const beadLayerVisible = useEditorStore((s) => s.beadLayerVisible);
-  const beadLayerOpacity = useEditorStore((s) => s.beadLayerOpacity);
+  // Layers
+  const layers = useEditorStore((s) => s.layers);
+  const activeLayerId = useEditorStore((s) => s.activeLayerId);
   const highlightColorIndex = useEditorStore((s) => s.highlightColorIndex);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
 
@@ -71,31 +71,47 @@ export function PixelCanvas() {
     return () => window.removeEventListener("resize", resize);
   }, [resize]);
 
-  // Render pixel layer
+  // Render pixel layers
   useEffect(() => {
     const ctx = pixelCanvasRef.current?.getContext("2d");
     if (!ctx || !containerRef.current) return;
 
     const w = containerRef.current.clientWidth;
     const h = containerRef.current.clientHeight;
-
     ctx.clearRect(0, 0, w, h);
 
-    if (!beadLayerVisible) return;
-
-    ctx.globalAlpha = beadLayerOpacity;
-    renderPixels(ctx, {
-      canvasData,
-      cellSize,
-      offsetX,
-      offsetY,
-      viewWidth: w,
-      viewHeight: h,
-      highlightColorIndex,
-      blueprintMode,
-    });
+    // Render each visible layer from bottom to top (colors only, no blueprint text)
+    for (const layer of layers) {
+      if (!layer.visible) continue;
+      ctx.globalAlpha = layer.opacity;
+      renderPixels(ctx, {
+        canvasData: layer.data,
+        cellSize,
+        offsetX,
+        offsetY,
+        viewWidth: w,
+        viewHeight: h,
+        highlightColorIndex,
+        blueprintMode: false, // text rendered separately below
+      });
+    }
     ctx.globalAlpha = 1;
-  }, [canvasData, cellSize, offsetX, offsetY, beadLayerVisible, beadLayerOpacity, highlightColorIndex, blueprintMode]);
+
+    // Blueprint text uses merged canvasData so codes match the visible top-layer color
+    if (blueprintMode) {
+      renderPixels(ctx, {
+        canvasData,
+        cellSize,
+        offsetX,
+        offsetY,
+        viewWidth: w,
+        viewHeight: h,
+        highlightColorIndex,
+        blueprintMode: true,
+        textOnly: true,
+      });
+    }
+  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode]);
 
   // Render reference image layer
   useEffect(() => {
@@ -352,6 +368,9 @@ export function PixelCanvas() {
             {MARD_COLORS[selectedColorIndex]?.code}
           </span>
         )}
+        <span className="text-blue-500">
+          图层: {layers.find((l) => l.id === activeLayerId)?.name ?? "—"}
+        </span>
       </div>
 
       {/* Canvas area */}

@@ -10,6 +10,7 @@ export interface RenderOptions {
   viewHeight: number;
   highlightColorIndex?: number | null;
   blueprintMode?: boolean;
+  textOnly?: boolean; // only draw blueprint text, skip fill
 }
 
 /** Compute contrasting text color */
@@ -28,7 +29,7 @@ export function renderPixels(
   ctx: CanvasRenderingContext2D,
   opts: RenderOptions
 ): void {
-  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode } = opts;
+  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode, textOnly } = opts;
   const rows = canvasData.length;
   const cols = rows > 0 ? canvasData[0].length : 0;
   const hasHighlight = highlightColorIndex !== null && highlightColorIndex !== undefined;
@@ -39,8 +40,6 @@ export function renderPixels(
   const endCol = Math.min(cols, Math.ceil((viewWidth - offsetX) / cellSize));
   const endRow = Math.min(rows, Math.ceil((viewHeight - offsetY) / cellSize));
 
-  ctx.clearRect(0, 0, viewWidth, viewHeight);
-
   for (let row = startRow; row < endRow; row++) {
     for (let col = startCol; col < endCol; col++) {
       const x = col * cellSize + offsetX;
@@ -49,30 +48,33 @@ export function renderPixels(
 
       if (cell.colorIndex !== null) {
         const color = MARD_COLORS[cell.colorIndex];
-        ctx.fillStyle = color.hex || "#FF00FF";
-        ctx.fillRect(x, y, cellSize, cellSize);
 
-        // Blueprint mode: draw cell border + color code text
-        if (blueprintMode) {
-          ctx.strokeStyle = "rgba(0,0,0,0.15)";
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x, y, cellSize, cellSize);
+        if (!textOnly) {
+          ctx.fillStyle = color.hex || "#FF00FF";
+          ctx.fillRect(x, y, cellSize, cellSize);
 
-          // Only draw text if cell is large enough
-          if (cellSize >= 16) {
-            const fontSize = Math.max(7, Math.min(cellSize * 0.32, 14));
-            ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillStyle = textLum(color.hex || "#FFF") > 140 ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.95)";
-            ctx.fillText(color.code, x + cellSize / 2, y + cellSize / 2, cellSize - 2);
+          // Blueprint mode: draw cell border
+          if (blueprintMode) {
+            ctx.strokeStyle = "rgba(0,0,0,0.15)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, cellSize, cellSize);
+          }
+
+          // Dim non-highlighted cells
+          if (hasHighlight && cell.colorIndex !== highlightColorIndex) {
+            ctx.fillStyle = "rgba(255,255,255,0.7)";
+            ctx.fillRect(x, y, cellSize, cellSize);
           }
         }
 
-        // Dim non-highlighted cells
-        if (hasHighlight && cell.colorIndex !== highlightColorIndex) {
-          ctx.fillStyle = "rgba(255,255,255,0.7)";
-          ctx.fillRect(x, y, cellSize, cellSize);
+        // Blueprint text (drawn in both normal blueprint and textOnly mode)
+        if ((blueprintMode || textOnly) && cellSize >= 16) {
+          const fontSize = Math.max(7, Math.min(cellSize * 0.32, 14));
+          ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = textLum(color.hex || "#FFF") > 140 ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.95)";
+          ctx.fillText(color.code, x + cellSize / 2, y + cellSize / 2, cellSize - 2);
         }
       }
       // Empty cells are transparent (no fill)

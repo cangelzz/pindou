@@ -34,6 +34,14 @@ export interface CanvasCell {
 
 export type CanvasData = CanvasCell[][];
 
+export interface BeadLayer {
+  id: string;
+  name: string;
+  data: CanvasData;
+  visible: boolean;
+  opacity: number; // 0-1
+}
+
 export interface HistoryEntry {
   row: number;
   col: number;
