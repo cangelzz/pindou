@@ -1,10 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { MARD_COLORS } from "../../data/mard221";
 import type { BeadCount } from "../../types";
 
+type SortMode = "count" | "code";
+
 export function BeadCounter() {
   const canvasData = useEditorStore((s) => s.canvasData);
+  const [sortMode, setSortMode] = useState<SortMode>("count");
 
   const counts = useMemo<BeadCount[]>(() => {
     const map = new Map<number, number>();
@@ -29,9 +32,14 @@ export function BeadCounter() {
         });
       }
     }
-    result.sort((a, b) => a.code.localeCompare(b.code));
+
+    if (sortMode === "count") {
+      result.sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+    } else {
+      result.sort((a, b) => a.code.localeCompare(b.code));
+    }
     return result;
-  }, [canvasData]);
+  }, [canvasData, sortMode]);
 
   const totalBeads = counts.reduce((sum, c) => sum + c.count, 0);
   const totalColors = counts.length;
@@ -39,7 +47,31 @@ export function BeadCounter() {
   return (
     <div className="flex flex-col h-full select-none">
       <div className="px-2 py-1.5 border-b bg-gray-50">
-        <h3 className="text-xs font-semibold text-gray-600">用量统计</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-gray-600">用量统计</h3>
+          <div className="flex gap-0.5">
+            <button
+              onClick={() => setSortMode("count")}
+              className={`px-1.5 py-0.5 text-[10px] rounded border ${
+                sortMode === "count"
+                  ? "bg-blue-100 border-blue-400 text-blue-700"
+                  : "border-gray-300 hover:bg-gray-100"
+              }`}
+            >
+              按数量
+            </button>
+            <button
+              onClick={() => setSortMode("code")}
+              className={`px-1.5 py-0.5 text-[10px] rounded border ${
+                sortMode === "code"
+                  ? "bg-blue-100 border-blue-400 text-blue-700"
+                  : "border-gray-300 hover:bg-gray-100"
+              }`}
+            >
+              按色号
+            </button>
+          </div>
+        </div>
         <p className="text-[10px] text-gray-400">
           {totalColors} 种颜色 · {totalBeads} 颗拼豆
         </p>

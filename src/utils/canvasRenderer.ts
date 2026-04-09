@@ -60,11 +60,11 @@ export function renderPixels(
 
           // Only draw text if cell is large enough
           if (cellSize >= 16) {
-            const fontSize = Math.max(6, Math.min(cellSize * 0.3, 14));
-            ctx.font = `bold ${fontSize}px monospace`;
+            const fontSize = Math.max(7, Math.min(cellSize * 0.32, 14));
+            ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillStyle = textLum(color.hex || "#FFF") > 140 ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.9)";
+            ctx.fillStyle = textLum(color.hex || "#FFF") > 140 ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.95)";
             ctx.fillText(color.code, x + cellSize / 2, y + cellSize / 2, cellSize - 2);
           }
         }

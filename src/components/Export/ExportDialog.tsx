@@ -8,6 +8,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
   const importedFileName = useEditorStore((s) => s.importedFileName);
+  const projectPath = useEditorStore((s) => s.projectPath);
   const gridConfig = useEditorStore((s) => s.gridConfig);
 
   const [cellSize, setCellSize] = useState(40);
@@ -21,7 +22,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const outputHeight = canvasSize.height * cellSize;
 
   const ext = format === "jpeg" ? "jpg" : format;
-  const baseName = importedFileName || "pindou";
+  const projectName = projectPath
+    ? projectPath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? null
+    : null;
+  const baseName = projectName || importedFileName || "pindou";
 
   const buildCells = () =>
     canvasData.map((row) =>
