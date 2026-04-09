@@ -14,6 +14,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportBlueprint, setExportBlueprint] = useState(true);
   const [exportPreview, setExportPreview] = useState(false);
+  const [exportMirror, setExportMirror] = useState(false);
 
   const outputWidth = canvasSize.width * cellSize;
   const outputHeight = canvasSize.height * cellSize;
@@ -31,6 +32,9 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           : null;
       })
     );
+
+  const mirrorCells = (cells: ReturnType<typeof buildCells>) =>
+    cells.map((row) => [...row].reverse());
 
   const handleExport = async () => {
     if (!exportBlueprint && !exportPreview) return;
@@ -66,6 +70,21 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           },
         });
         results.push(`图纸: ${blueprintPath}`);
+
+        if (exportMirror) {
+          const mirrorPath = blueprintPath.replace(/\.([^.]+)$/, "_mirror.$1");
+          await invoke("export_image", {
+            request: {
+              width: canvasSize.width,
+              height: canvasSize.height,
+              cell_size: cellSize,
+              cells: mirrorCells(cells),
+              output_path: mirrorPath,
+              format,
+            },
+          });
+          results.push(`镜像图纸: ${mirrorPath}`);
+        }
       }
 
       if (exportPreview) {
@@ -96,6 +115,20 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           },
         });
         results.push(`效果图: ${previewPath}`);
+
+        if (exportMirror) {
+          const mirrorPreviewPath = previewPath.replace(/\.([^.]+)$/, "_mirror.$1");
+          await invoke("export_preview", {
+            request: {
+              width: canvasSize.width,
+              height: canvasSize.height,
+              pixel_size: cellSize,
+              cells: mirrorCells(cells),
+              output_path: mirrorPreviewPath,
+            },
+          });
+          results.push(`镜像效果图: ${mirrorPreviewPath}`);
+        }
       }
 
       alert(`导出成功:\n${results.join("\n")}`);
@@ -183,6 +216,15 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   className="w-3.5 h-3.5"
                 />
                 <span>🎨 效果图（模拟烫平后的样子，纯色块无辅助线）</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={exportMirror}
+                  onChange={(e) => setExportMirror(e.target.checked)}
+                  className="w-3.5 h-3.5"
+                />
+                <span>🪞 同时导出左右镜像（拼豆背面视角）</span>
               </label>
             </div>
           </div>

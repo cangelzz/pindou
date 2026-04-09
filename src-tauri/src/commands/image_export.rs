@@ -256,11 +256,11 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
 
     let mut legend_y = grid_area_h + legend_gap;
     let total_beads: u32 = by_count.iter().map(|x| x.4).sum();
-    let title1 = format!("按用量排序 ({} 色, {} 颗)", by_count.len(), total_beads);
+    let title1 = format!("By Count ({} colors, {} beads)", by_count.len(), total_beads);
     draw_legend_section(&mut img, &by_count, legend_y, &title1);
     legend_y += legend_section_h(&by_count) + legend_gap;
 
-    let title2 = format!("按色号排序 ({} 色)", by_alpha.len());
+    let title2 = format!("By Code ({} colors)", by_alpha.len());
     draw_legend_section(&mut img, &by_alpha, legend_y, &title2);
 
     match request.format.as_str() {
