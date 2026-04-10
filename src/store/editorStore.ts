@@ -45,6 +45,8 @@ interface EditorState {
   offsetY: number;
   zoom: number;
   blueprintMode: boolean;
+  blueprintMirror: boolean;
+  gridFocusMode: boolean;
 
   // Tool state
   currentTool: EditorTool;
@@ -76,6 +78,8 @@ interface EditorState {
   setZoom: (zoom: number) => void;
   setOffset: (x: number, y: number) => void;
   setBlueprintMode: (on: boolean) => void;
+  setBlueprintMirror: (on: boolean) => void;
+  setGridFocusMode: (on: boolean) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -228,6 +232,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   offsetY: 0,
   zoom: 1,
   blueprintMode: false,
+  blueprintMirror: false,
+  gridFocusMode: false,
 
   currentTool: "pen",
   selectedColorIndex: 0,
@@ -331,6 +337,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setOffset: (x, y) => set({ offsetX: x, offsetY: y }),
 
   setBlueprintMode: (on) => set({ blueprintMode: on }),
+
+  setBlueprintMirror: (on) => set({ blueprintMirror: on }),
+
+  setGridFocusMode: (on) => set({ gridFocusMode: on }),
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },

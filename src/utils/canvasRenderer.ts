@@ -11,6 +11,7 @@ export interface RenderOptions {
   highlightColorIndex?: number | null;
   blueprintMode?: boolean;
   textOnly?: boolean; // only draw blueprint text, skip fill
+  mirror?: boolean; // horizontal flip (left-right)
 }
 
 /** Compute contrasting text color */
@@ -29,7 +30,7 @@ export function renderPixels(
   ctx: CanvasRenderingContext2D,
   opts: RenderOptions
 ): void {
-  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode, textOnly } = opts;
+  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode, textOnly, mirror } = opts;
   const rows = canvasData.length;
   const cols = rows > 0 ? canvasData[0].length : 0;
   const hasHighlight = highlightColorIndex !== null && highlightColorIndex !== undefined;
@@ -42,9 +43,10 @@ export function renderPixels(
 
   for (let row = startRow; row < endRow; row++) {
     for (let col = startCol; col < endCol; col++) {
+      const srcCol = mirror ? (cols - 1 - col) : col;
       const x = col * cellSize + offsetX;
       const y = row * cellSize + offsetY;
-      const cell = canvasData[row][col];
+      const cell = canvasData[row][srcCol];
 
       if (cell.colorIndex !== null) {
         const color = MARD_COLORS[cell.colorIndex];
@@ -87,14 +89,15 @@ export function renderPixels(
     ctx.lineWidth = 2;
     for (let row = startRow; row < endRow; row++) {
       for (let col = startCol; col < endCol; col++) {
-        const cell = canvasData[row][col];
+        const srcCol = mirror ? (cols - 1 - col) : col;
+        const cell = canvasData[row][srcCol];
         if (cell.colorIndex !== highlightColorIndex) continue;
 
         const x = col * cellSize + offsetX;
         const y = row * cellSize + offsetY;
 
         // Top edge: draw if row above is not same color
-        const above = row > 0 ? canvasData[row - 1][col]?.colorIndex : null;
+        const above = row > 0 ? canvasData[row - 1][srcCol]?.colorIndex : null;
         if (above !== highlightColorIndex) {
           ctx.beginPath();
           ctx.moveTo(x, y);
@@ -102,7 +105,7 @@ export function renderPixels(
           ctx.stroke();
         }
         // Bottom edge
-        const below = row < rows - 1 ? canvasData[row + 1][col]?.colorIndex : null;
+        const below = row < rows - 1 ? canvasData[row + 1][srcCol]?.colorIndex : null;
         if (below !== highlightColorIndex) {
           ctx.beginPath();
           ctx.moveTo(x, y + cellSize);
@@ -110,7 +113,7 @@ export function renderPixels(
           ctx.stroke();
         }
         // Left edge
-        const left = col > 0 ? canvasData[row][col - 1]?.colorIndex : null;
+        const left = srcCol > 0 && srcCol < cols ? canvasData[row][mirror ? srcCol - 1 : col - 1]?.colorIndex : null;
         if (left !== highlightColorIndex) {
           ctx.beginPath();
           ctx.moveTo(x, y);
@@ -118,7 +121,7 @@ export function renderPixels(
           ctx.stroke();
         }
         // Right edge
-        const right = col < cols - 1 ? canvasData[row][col + 1]?.colorIndex : null;
+        const right = srcCol >= 0 && srcCol < cols - 1 ? canvasData[row][mirror ? srcCol + 1 : col + 1]?.colorIndex : null;
         if (right !== highlightColorIndex) {
           ctx.beginPath();
           ctx.moveTo(x + cellSize, y);

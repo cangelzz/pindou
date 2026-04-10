@@ -19,6 +19,10 @@ export function CanvasToolbar() {
   const setZoom = useEditorStore((s) => s.setZoom);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
   const setBlueprintMode = useEditorStore((s) => s.setBlueprintMode);
+  const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
+  const setBlueprintMirror = useEditorStore((s) => s.setBlueprintMirror);
+  const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
+  const setGridFocusMode = useEditorStore((s) => s.setGridFocusMode);
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
@@ -92,6 +96,30 @@ export function CanvasToolbar() {
       >
         📋
       </button>
+
+      {/* Mirror toggle (only in blueprint mode) */}
+      {blueprintMode && (
+        <button
+          onClick={() => setBlueprintMirror(!blueprintMirror)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
+            ${blueprintMirror ? "bg-purple-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title={blueprintMirror ? "退出镜像" : "镜像（背面视角）"}
+        >
+          🪞
+        </button>
+      )}
+
+      {/* Grid focus toggle (only in blueprint mode) */}
+      {blueprintMode && (
+        <button
+          onClick={() => setGridFocusMode(!gridFocusMode)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
+            ${gridFocusMode ? "bg-teal-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title={gridFocusMode ? "退出网格聚焦" : "网格聚焦（点击选中5×5区域）"}
+        >
+          🔲
+        </button>
+      )}
     </div>
   );
 }

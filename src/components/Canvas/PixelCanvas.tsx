@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
@@ -37,11 +37,19 @@ export function PixelCanvas() {
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
   const highlightColorIndex = useEditorStore((s) => s.highlightColorIndex);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
+  const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
+  const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
 
   // Track dragging state
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const isPanning = useRef(false);
+
+  // Resize counter to trigger re-renders after canvas resize
+  const [resizeCount, setResizeCount] = useState(0);
+
+  // Blueprint mode: focused 5×5 grid group highlight
+  const [focusGroup, setFocusGroup] = useState<{ groupCol: number; groupRow: number } | null>(null);
 
   // Resize canvases to fill container
   const resize = useCallback(() => {
@@ -63,6 +71,7 @@ export function PixelCanvas() {
       c.style.height = `${h}px`;
       c.getContext("2d")?.scale(dpr, dpr);
     }
+    setResizeCount((c) => c + 1);
   }, []);
 
   useEffect(() => {
@@ -71,7 +80,13 @@ export function PixelCanvas() {
     return () => window.removeEventListener("resize", resize);
   }, [resize]);
 
+  // Clear focus group when leaving blueprint mode or grid focus mode
+  useEffect(() => {
+    if (!blueprintMode || !gridFocusMode) setFocusGroup(null);
+  }, [blueprintMode, gridFocusMode]);
+
   // Render pixel layers
+  const isMirror = blueprintMode && blueprintMirror;
   useEffect(() => {
     const ctx = pixelCanvasRef.current?.getContext("2d");
     if (!ctx || !containerRef.current) return;
@@ -93,6 +108,7 @@ export function PixelCanvas() {
         viewHeight: h,
         highlightColorIndex,
         blueprintMode: false, // text rendered separately below
+        mirror: isMirror,
       });
     }
     ctx.globalAlpha = 1;
@@ -109,9 +125,10 @@ export function PixelCanvas() {
         highlightColorIndex,
         blueprintMode: true,
         textOnly: true,
+        mirror: isMirror,
       });
     }
-  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode]);
+  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode, isMirror, resizeCount]);
 
   // Render reference image layer
   useEffect(() => {
@@ -128,7 +145,8 @@ export function PixelCanvas() {
     ctx.globalAlpha = refImageOpacity;
     for (let row = 0; row < refImageHeight; row++) {
       for (let col = 0; col < refImageWidth; col++) {
-        const x = col * cellSize + offsetX;
+        const drawCol = isMirror ? (refImageWidth - 1 - col) : col;
+        const x = drawCol * cellSize + offsetX;
         const y = row * cellSize + offsetY;
 
         // Cull off-screen
@@ -143,7 +161,7 @@ export function PixelCanvas() {
       }
     }
     ctx.globalAlpha = 1;
-  }, [refImagePixels, refImageWidth, refImageHeight, refImageVisible, refImageOpacity, cellSize, offsetX, offsetY]);
+  }, [refImagePixels, refImageWidth, refImageHeight, refImageVisible, refImageOpacity, cellSize, offsetX, offsetY, isMirror, resizeCount]);
 
   // Render grid layer
   useEffect(() => {
@@ -164,7 +182,58 @@ export function PixelCanvas() {
       h,
       gridConfig
     );
-  }, [canvasSize, cellSize, offsetX, offsetY, gridConfig]);
+
+    // Draw focused 5×5 group highlight in blueprint mode
+    if (blueprintMode && gridFocusMode && focusGroup) {
+      const { groupSize, edgePadding } = gridConfig;
+      const gc = focusGroup.groupCol;
+      const gr = focusGroup.groupRow;
+      const startC = edgePadding + gc * groupSize;
+      const startR = edgePadding + gr * groupSize;
+      const x0 = startC * cellSize + offsetX;
+      const y0 = startR * cellSize + offsetY;
+      const gw = groupSize * cellSize;
+      const gh = groupSize * cellSize;
+
+      // Compute average color in the group to pick contrasting highlight
+      let rSum = 0, gSum = 0, bSum = 0, count = 0;
+      for (let r = startR; r < startR + groupSize && r < canvasSize.height; r++) {
+        for (let c = startC; c < startC + groupSize && c < canvasSize.width; c++) {
+          const cell = canvasData[r]?.[c];
+          if (cell?.colorIndex !== null && cell?.colorIndex !== undefined) {
+            const hex = MARD_COLORS[cell.colorIndex]?.hex;
+            if (hex) {
+              rSum += parseInt(hex.slice(1, 3), 16);
+              gSum += parseInt(hex.slice(3, 5), 16);
+              bSum += parseInt(hex.slice(5, 7), 16);
+              count++;
+            }
+          }
+        }
+      }
+      let highlightColor: string;
+      if (count > 0) {
+        const avgLum = (0.299 * rSum + 0.587 * gSum + 0.114 * bSum) / count;
+        // Light area → dark highlight, dark area → bright highlight
+        highlightColor = avgLum > 128
+          ? "rgba(220,38,38,0.85)"   // red for light backgrounds
+          : "rgba(34,211,238,0.85)";  // cyan for dark backgrounds
+      } else {
+        highlightColor = "rgba(59,130,246,0.85)"; // blue for empty
+      }
+
+      ctx.strokeStyle = highlightColor;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x0, y0, gw, gh);
+
+      // Semi-transparent overlay outside the focused group
+      ctx.fillStyle = "rgba(0,0,0,0.12)";
+      ctx.fillRect(0, 0, w, y0);
+      ctx.fillRect(0, y0 + gh, w, h - y0 - gh);
+      ctx.fillRect(0, y0, x0, gh);
+      ctx.fillRect(x0 + gw, y0, w - x0 - gw, gh);
+    }
+  }, [canvasSize, canvasData, cellSize, offsetX, offsetY, gridConfig, blueprintMode, gridFocusMode, focusGroup, resizeCount]);
 
   // Render floating axis labels in blueprint mode
   useEffect(() => {
@@ -227,7 +296,7 @@ export function PixelCanvas() {
     // Corner box
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillRect(0, 0, labelW, labelH);
-  }, [blueprintMode, canvasSize, cellSize, offsetX, offsetY, gridConfig]);
+  }, [blueprintMode, canvasSize, cellSize, offsetX, offsetY, gridConfig, resizeCount]);
 
   // Convert screen position to cell coordinates
   const screenToCell = useCallback(
@@ -313,6 +382,32 @@ export function PixelCanvas() {
     isPanning.current = false;
   }, []);
 
+  // Double-click to set/toggle grid focus (works in any tool mode including pan)
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!gridFocusMode || !blueprintMode) return;
+      const cell = screenToCell(e.clientX, e.clientY);
+      if (!cell) return;
+      const { groupSize, edgePadding } = gridConfig;
+      const col = cell.col - edgePadding;
+      const row = cell.row - edgePadding;
+      const innerW = canvasSize.width - edgePadding * 2;
+      const innerH = canvasSize.height - edgePadding * 2;
+      if (col >= 0 && col < innerW && row >= 0 && row < innerH) {
+        const gc = Math.floor(col / groupSize);
+        const gr = Math.floor(row / groupSize);
+        if (focusGroup && focusGroup.groupCol === gc && focusGroup.groupRow === gr) {
+          setFocusGroup(null);
+        } else {
+          setFocusGroup({ groupCol: gc, groupRow: gr });
+        }
+      } else {
+        setFocusGroup(null);
+      }
+    },
+    [gridFocusMode, blueprintMode, screenToCell, gridConfig, canvasSize, focusGroup]
+  );
+
 
 
   // Keyboard shortcuts
@@ -327,6 +422,34 @@ export function PixelCanvas() {
       } else if (e.key === " ") {
         e.preventDefault();
         useEditorStore.getState().setTool("pan");
+      } else if (e.key === "Escape") {
+        setFocusGroup(null);
+      } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        // Move focus group with arrow keys
+        setFocusGroup((prev) => {
+          const state = useEditorStore.getState();
+          if (!state.gridFocusMode || !state.blueprintMode) return prev;
+          const { groupSize, edgePadding } = state.gridConfig;
+          const innerW = state.canvasSize.width - edgePadding * 2;
+          const innerH = state.canvasSize.height - edgePadding * 2;
+          const maxGC = Math.ceil(innerW / groupSize) - 1;
+          const maxGR = Math.ceil(innerH / groupSize) - 1;
+
+          // If no focus yet, start at (0,0)
+          const gc = prev ? prev.groupCol : 0;
+          const gr = prev ? prev.groupRow : 0;
+          let nc = gc, nr = gr;
+          if (e.key === "ArrowLeft") nc = Math.max(0, gc - 1);
+          if (e.key === "ArrowRight") nc = Math.min(maxGC, gc + 1);
+          if (e.key === "ArrowUp") nr = Math.max(0, gr - 1);
+          if (e.key === "ArrowDown") nr = Math.min(maxGR, gr + 1);
+
+          if (!prev && nc === gc && nr === gr) {
+            return { groupCol: 0, groupRow: 0 };
+          }
+          return { groupCol: nc, groupRow: nr };
+        });
+        e.preventDefault();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -371,6 +494,9 @@ export function PixelCanvas() {
         <span className="text-blue-500">
           图层: {layers.find((l) => l.id === activeLayerId)?.name ?? "—"}
         </span>
+        {blueprintMode && blueprintMirror && (
+          <span className="text-purple-500">🪞 镜像</span>
+        )}
       </div>
 
       {/* Canvas area */}
@@ -389,6 +515,7 @@ export function PixelCanvas() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
       >
         <canvas
