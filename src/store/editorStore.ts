@@ -41,6 +41,7 @@ interface EditorState {
   blueprintMode: boolean;
   blueprintMirror: boolean;
   gridFocusMode: boolean;
+  voiceControlEnabled: boolean;
 
   // Tool state
   currentTool: EditorTool;
@@ -74,6 +75,7 @@ interface EditorState {
   setBlueprintMode: (on: boolean) => void;
   setBlueprintMirror: (on: boolean) => void;
   setGridFocusMode: (on: boolean) => void;
+  setVoiceControlEnabled: (on: boolean) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -228,6 +230,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   blueprintMode: false,
   blueprintMirror: false,
   gridFocusMode: false,
+  voiceControlEnabled: false,
 
   currentTool: "pen",
   selectedColorIndex: 0,
@@ -330,11 +333,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setOffset: (x, y) => set({ offsetX: x, offsetY: y }),
 
-  setBlueprintMode: (on) => set({ blueprintMode: on }),
+  setBlueprintMode: (on) => set((state) => ({
+    blueprintMode: on,
+    currentTool: on ? "pan" : (state.currentTool === "pan" ? "pen" : state.currentTool),
+  })),
 
   setBlueprintMirror: (on) => set({ blueprintMirror: on }),
 
   setGridFocusMode: (on) => set({ gridFocusMode: on }),
+
+  setVoiceControlEnabled: (on) => set({ voiceControlEnabled: on }),
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },

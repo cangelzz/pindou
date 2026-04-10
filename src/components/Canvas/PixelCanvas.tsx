@@ -2,6 +2,8 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
+import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl";
+import { playDone, playUnknown, playListenStart, speak } from "../../utils/audioFeedback";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -39,6 +41,8 @@ export function PixelCanvas() {
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
   const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
   const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
+  const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
+  const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -50,6 +54,76 @@ export function PixelCanvas() {
 
   // Blueprint mode: focused 5×5 grid group highlight
   const [focusGroup, setFocusGroup] = useState<{ groupCol: number; groupRow: number } | null>(null);
+
+  // Voice command feedback
+  const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
+  const voiceFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Voice control: move grid focus by voice
+  const handleVoiceCommand = useCallback(
+    (result: { command: VoiceCommand; raw: string }) => {
+      const state = useEditorStore.getState();
+      const { groupSize, edgePadding } = state.gridConfig;
+      const innerW = state.canvasSize.width - edgePadding * 2;
+      const innerH = state.canvasSize.height - edgePadding * 2;
+      const maxGC = Math.ceil(innerW / groupSize) - 1;
+      const maxGR = Math.ceil(innerH / groupSize) - 1;
+
+      const LABELS: Record<string, string> = {
+        up: "⬆ 上", down: "⬇ 下", left: "⬅ 左", right: "➡ 右",
+        cancel: "❌ 取消", confirm: "✅ 确认", unknown: `? ${result.raw}`,
+      };
+
+      setFocusGroup((prev) => {
+        const gc = prev ? prev.groupCol : 0;
+        const gr = prev ? prev.groupRow : 0;
+        let nc = gc, nr = gr;
+        switch (result.command) {
+          case "up": nr = Math.max(0, gr - 1); break;
+          case "down": nr = Math.min(maxGR, gr + 1); break;
+          case "left": nc = Math.max(0, gc - 1); break;
+          case "right": nc = Math.min(maxGC, gc + 1); break;
+          case "cancel": return null;
+          default: return prev;
+        }
+        if (!prev) return { groupCol: 0, groupRow: 0 };
+        return { groupCol: nc, groupRow: nr };
+      });
+
+      const SPEAK: Record<string, string> = {
+        up: "上", down: "下", left: "左", right: "右",
+        cancel: "取消", confirm: "确认",
+      };
+
+      // Show feedback and play sound, then speak the command
+      if (result.command !== "unknown") {
+        playDone("A");
+        setTimeout(() => speak(SPEAK[result.command] ?? ""), 250);
+      } else {
+        playUnknown();
+      }
+      setVoiceFeedback(LABELS[result.command] ?? result.raw);
+      if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
+      voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 1200);
+    },
+    []
+  );
+
+  // Voice control: start/stop based on store toggle
+  const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand });
+
+  useEffect(() => {
+    if (voiceControlEnabled && gridFocusMode && blueprintMode) {
+      voiceControl.start();
+      playListenStart();
+    } else {
+      voiceControl.stop();
+      if (voiceControlEnabled && (!gridFocusMode || !blueprintMode)) {
+        setVoiceControlEnabled(false);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceControlEnabled, gridFocusMode, blueprintMode]);
 
   // Resize canvases to fill container
   const resize = useCallback(() => {
@@ -508,6 +582,12 @@ export function PixelCanvas() {
         </span>
         {blueprintMode && blueprintMirror && (
           <span className="text-purple-500">🪞 镜像</span>
+        )}
+        {voiceControl.isListening && (
+          <span className="text-red-500 animate-pulse">🎤 语音控制中</span>
+        )}
+        {voiceFeedback && (
+          <span className="text-green-600 font-semibold">{voiceFeedback}</span>
         )}
       </div>
 

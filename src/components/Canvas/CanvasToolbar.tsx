@@ -23,6 +23,8 @@ export function CanvasToolbar() {
   const setBlueprintMirror = useEditorStore((s) => s.setBlueprintMirror);
   const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
   const setGridFocusMode = useEditorStore((s) => s.setGridFocusMode);
+  const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
+  const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
@@ -115,11 +117,24 @@ export function CanvasToolbar() {
           onClick={() => setGridFocusMode(!gridFocusMode)}
           className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
             ${gridFocusMode ? "bg-teal-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title={gridFocusMode ? "退出网格聚焦" : "网格聚焦（点击选中5×5区域）"}
+          title={gridFocusMode ? "退出网格聚焦" : "网格聚焦（双击/方向键选中5×5区域）"}
         >
           🔲
         </button>
       )}
+
+      {/* Voice control toggle (only in blueprint + grid focus mode) */}
+      {blueprintMode && gridFocusMode && (
+        <button
+          onClick={() => setVoiceControlEnabled(!voiceControlEnabled)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
+            ${voiceControlEnabled ? "bg-red-500 text-white shadow animate-pulse" : "hover:bg-gray-200"}`}
+          title={voiceControlEnabled ? "关闭语音控制" : "语音控制（说 上下左右 移动聚焦）"}
+        >
+          🎤
+        </button>
+      )}
+
     </div>
   );
 }
