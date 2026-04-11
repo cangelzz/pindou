@@ -43,6 +43,8 @@ function App() {
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
+  const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
+  const setAiVoiceEnabled = useEditorStore((s) => s.setAiVoiceEnabled);
   const saveProject = useEditorStore((s) => s.saveProject);
   const saveProjectAs = useEditorStore((s) => s.saveProjectAs);
   const openProject = useEditorStore((s) => s.openProject);
@@ -614,6 +616,15 @@ function App() {
             className="w-3 h-3"
           />
           自动保存
+        </label>
+        <label className="flex items-center gap-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={aiVoiceEnabled}
+            onChange={(e) => setAiVoiceEnabled(e.target.checked)}
+            className="w-3 h-3"
+          />
+          AI语音
         </label>
         {lastSavedAt && <span className="text-green-600">上次保存: {lastSavedAt}</span>}
       </div>
