@@ -34,6 +34,7 @@ export function CanvasToolbar() {
   const setGridFocusMode = useEditorStore((s) => s.setGridFocusMode);
   const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
+  const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
@@ -144,8 +145,8 @@ export function CanvasToolbar() {
         </button>
       )}
 
-      {/* AI voice enhancement toggle */}
-      {blueprintMode && gridFocusMode && (
+      {/* AI voice enhancement toggle (only when feature enabled) */}
+      {blueprintMode && gridFocusMode && aiVoiceEnabled && (
         <button
           onClick={() => {
             if (hasLLM) {

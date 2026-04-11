@@ -114,10 +114,11 @@ function matchFromAlternatives(result: SpeechRecognitionResult): { command: Voic
 
 interface UseVoiceControlOptions {
   lang?: string;
+  useLLM?: boolean;
   onCommand: (result: VoiceCommandResult) => void;
 }
 
-export function useVoiceControl({ lang = "zh-CN", onCommand }: UseVoiceControlOptions) {
+export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: UseVoiceControlOptions) {
   const [isListening, setIsListening] = useState(false);
   const [lastResult, setLastResult] = useState<VoiceCommandResult | null>(null);
   const [isSupported] = useState(() => typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window));
@@ -164,7 +165,7 @@ export function useVoiceControl({ lang = "zh-CN", onCommand }: UseVoiceControlOp
       const regexResult = matchFromAlternatives(last);
       const transcript = regexResult.raw;
 
-      if (hasToken()) {
+      if (useLLM && hasToken()) {
         // LLM enabled: let LLM handle all commands (supports complex + simple)
         // Skip regex execution to avoid double-firing
 

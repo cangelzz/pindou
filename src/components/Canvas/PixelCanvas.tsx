@@ -43,6 +43,7 @@ export function PixelCanvas() {
   const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
   const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
+  const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
 
   // Track dragging state
   const isDragging = useRef(false);
@@ -178,7 +179,7 @@ export function PixelCanvas() {
   );
 
   // Voice control: start/stop based on store toggle
-  const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand });
+  const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand, useLLM: aiVoiceEnabled });
 
   // Sync store when voice auto-stops (idle timeout) — only if it was previously listening
   const wasListening = useRef(false);

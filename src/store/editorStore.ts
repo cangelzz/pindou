@@ -42,6 +42,7 @@ interface EditorState {
   blueprintMirror: boolean;
   gridFocusMode: boolean;
   voiceControlEnabled: boolean;
+  aiVoiceEnabled: boolean; // feature switch for LLM voice, default off
 
   // Tool state
   currentTool: EditorTool;
@@ -76,6 +77,7 @@ interface EditorState {
   setBlueprintMirror: (on: boolean) => void;
   setGridFocusMode: (on: boolean) => void;
   setVoiceControlEnabled: (on: boolean) => void;
+  setAiVoiceEnabled: (on: boolean) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -231,6 +233,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   blueprintMirror: false,
   gridFocusMode: false,
   voiceControlEnabled: false,
+  aiVoiceEnabled: false,
 
   currentTool: "pen",
   selectedColorIndex: 0,
@@ -343,6 +346,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setGridFocusMode: (on) => set({ gridFocusMode: on }),
 
   setVoiceControlEnabled: (on) => set({ voiceControlEnabled: on }),
+
+  setAiVoiceEnabled: (on) => set({ aiVoiceEnabled: on }),
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },
