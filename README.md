@@ -1,8 +1,10 @@
-# 拼豆像素编辑器 (PinDou Pixel Editor)
+# 拼豆宇宙 PindouVerse
 
-跨平台（Windows / macOS）拼豆像素艺术编辑器，内置 MARD 221 色预定义色板。
+跨平台拼豆像素艺术编辑器，支持 MARD 295 色板、多图层、图纸模式、语音控制。
 
 **技术栈**: Tauri v2 + React 19 + TypeScript + Vite + Zustand + Tailwind CSS 4
+
+**平台**: Desktop (Windows/macOS) · Browser Extension (Chrome/Edge) · iOS/Android (WIP)
 
 ---
 
@@ -56,10 +58,27 @@ npm run tauri dev
 ### 常用开发命令
 
 ```bash
+# Desktop
 npm run dev          # 仅启动 Vite 前端 (http://localhost:1420)
 npm run tauri dev    # 启动完整 Tauri 应用（推荐）
+npm run tauri build  # 构建安装包
+
+# 测试
+npm test             # 运行单元测试（Vitest）
+npm run test:watch   # 测试监听模式
+
+# 类型检查
 npx tsc --noEmit     # TypeScript 类型检查
-npm run build        # 仅构建前端
+
+# 浏览器扩展
+npm run ext:dev      # 扩展开发模式
+npm run ext:build    # 构建扩展到 platforms/extension/dist/
+
+# 移动端（需要对应平台工具链，详见 platforms/ios/SETUP.md 和 platforms/android/SETUP.md）
+npm run ios:init     # 初始化 iOS 项目（仅首次）
+npm run ios:dev      # iOS 开发模式
+npm run android:init # 初始化 Android 项目（仅首次）
+npm run android:dev  # Android 开发模式
 ```
 
 ---
@@ -76,10 +95,10 @@ npm run tauri build
 
 | 平台 | 产物路径 | 格式 |
 |------|----------|------|
-| **Windows** | `bundle/nsis/PinDou Editor_0.1.0_x64-setup.exe` | NSIS 安装包 |
-| **Windows** | `bundle/msi/PinDou Editor_0.1.0_x64_en-US.msi` | MSI 安装包 |
-| **macOS** | `bundle/dmg/PinDou Editor_0.1.0_aarch64.dmg` | DMG 磁盘映像 |
-| **macOS** | `bundle/macos/PinDou Editor.app` | App Bundle |
+| **Windows** | `bundle/nsis/PindouVerse_0.1.0_x64-setup.exe` | NSIS 安装包 |
+| **Windows** | `bundle/msi/PindouVerse_0.1.0_x64_en-US.msi` | MSI 安装包 |
+| **macOS** | `bundle/dmg/PindouVerse_0.1.0_aarch64.dmg` | DMG 磁盘映像 |
+| **macOS** | `bundle/macos/PindouVerse.app` | App Bundle |
 
 ### 仅构建特定格式
 
@@ -134,7 +153,7 @@ npx tauri icon app-icon.png
 
 **发送到 macOS**：
 1. 将 `.dmg` 文件拷贝到目标 Mac
-2. 双击打开 DMG，将 `PinDou Editor.app` 拖入 `Applications` 文件夹
+2. 双击打开 DMG，将 `PindouVerse.app` 拖入 `Applications` 文件夹
 3. 首次打开时，右键点击 App → 选择"打开"（绕过 Gatekeeper 未签名提示）
 
 > **跨平台构建限制**：Tauri 不支持在 Windows 上构建 macOS 安装包，反之亦然。需要在目标平台上构建对应的安装包。
@@ -172,23 +191,61 @@ open src-tauri/target/release/bundle/dmg/*.dmg
 
 ```
 pindou/
-├── src/                          # React 前端
+├── src/                          # React 前端（跨平台共享）
+│   ├── adapters/                 # 平台适配层
+│   │   ├── index.ts              # PlatformAdapter 接口定义
+│   │   ├── tauri.ts              # Desktop 实现 (Tauri IPC)
+│   │   ├── browser.ts            # 浏览器扩展实现 (IndexedDB + Canvas API)
+│   │   └── mobile.ts             # 移动端实现 (继承 Tauri + share)
 │   ├── components/
-│   │   ├── Canvas/               # 画布 + 工具栏
-│   │   ├── Palette/              # MARD 221 色板
-│   │   ├── Import/               # 图片导入
-│   │   ├── Export/               # 高分辨率导出
+│   │   ├── Canvas/               # 画布 + 工具栏 + 图纸模式
+│   │   ├── Palette/              # MARD 295 色板（分组/搜索）
+│   │   ├── Import/               # 图片导入（放大镜/区域选择/对比）
+│   │   ├── Export/               # 高分辨率导出（网格/图例/镜像）
 │   │   └── Stats/                # 拼豆用量统计
-│   ├── data/mard221.ts           # MARD 221色定义
-│   ├── store/editorStore.ts      # Zustand 状态管理
-│   ├── utils/                    # 颜色转换/匹配算法
+│   ├── hooks/
+│   │   └── useVoiceControl.ts    # 语音控制 Hook (Web Speech API)
+│   ├── data/mard221.ts           # MARD 295 色定义 + 色系分组
+│   ├── store/editorStore.ts      # Zustand 状态管理（多图层/蓝图/网格）
+│   ├── utils/
+│   │   ├── canvasRenderer.ts     # Canvas 2D 渲染（像素/网格/蓝图）
+│   │   ├── colorConversion.ts    # RGB ↔ CIELAB 转换
+│   │   ├── colorMatching.ts      # 颜色匹配算法
+│   │   ├── audioFeedback.ts      # 语音提示音 (Web Audio API)
+│   │   └── llmVoice.ts           # LLM 语音增强 (GitHub Models API)
 │   └── types/index.ts            # TypeScript 类型
 ├── src-tauri/                    # Rust 后端
-│   ├── src/commands/             # IPC 命令 (导入/导出)
+│   ├── src/commands/
+│   │   ├── image_import.rs       # 图片导入/缩放
+│   │   ├── image_export.rs       # 高分辨率导出
+│   │   ├── project.rs            # 项目保存/加载/快照
+│   │   ├── mobile.rs             # 移动端命令
+│   │   └── github_auth.rs        # GitHub OAuth + LLM API 代理
 │   ├── src/color/                # CIELAB 颜色匹配
-│   ├── fonts/                    # 导出用字体
+│   ├── fonts/                    # 导出用字体 (Noto Sans Mono)
 │   └── tauri.conf.json           # Tauri 配置
+├── platforms/
+│   ├── extension/                # Chrome/Edge 浏览器扩展
+│   ├── ios/                      # iOS 平台 (WIP)
+│   └── android/                  # Android 平台 (WIP)
+├── tests/
+│   └── core/                     # 核心逻辑单元测试 (Vitest)
+├── scripts/                      # 工具脚本（图标生成等）
 ├── package.json
 ├── vite.config.ts
 └── tsconfig.json
 ```
+
+---
+
+## 功能概览
+
+- **MARD 295 色板** — 15 个色系分组，支持搜索和筛选
+- **多图层系统** — 参考图层 + 拼豆图层 + 自定义图层，独立透明度/可见性
+- **图纸模式** — 实时蓝图预览，浮动坐标轴，网格聚焦（双击/方向键/语音）
+- **镜像模式** — 蓝图翻转查看拼豆背面视角，支持镜像编辑
+- **图片导入** — 放大镜预览，区域裁切，算法对比（Euclidean/CIEDE2000）
+- **高分辨率导出** — 网格线 + 色号 + 坐标轴 + 色彩图例 + 镜像导出
+- **语音控制** — Web Speech API 语音指令移动网格聚焦，可选 LLM AI 增强
+- **项目管理** — 保存/加载 .pindou 项目文件，自动保存，版本快照
+- **跨平台** — Desktop (Tauri) + Browser Extension + iOS/Android (WIP)
