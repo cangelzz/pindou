@@ -282,8 +282,40 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
     let margin = detect_margin(&img, cell_size);
 
     // Step 3: Calculate grid dimensions
+    // For width: simple division works since there's no side legend
     let grid_w = (img_w.saturating_sub(margin)) / cell_size;
-    let grid_h = (img_h.saturating_sub(margin)) / cell_size;
+
+    // For height: detect where grid lines stop (legend area below has no grid)
+    // Scan downward from margin, find the last row that has regular vertical grid lines
+    let grid_h = {
+        let max_possible = (img_h.saturating_sub(margin)) / cell_size;
+        let mut actual_h = max_possible;
+
+        // Check from bottom up: find first row that still has grid lines
+        for test_row in (1..=max_possible).rev() {
+            let y = margin + test_row * cell_size; // bottom edge of this row
+            if y >= img_h { continue; }
+            // Check if there's a horizontal grid line at this y position
+            // Sample several x positions for the line
+            let mut line_pixels = 0;
+            let mut total_checked = 0;
+            for x_sample in (margin..margin + grid_w * cell_size).step_by(cell_size as usize) {
+                if x_sample < img_w {
+                    let p = img.get_pixel(x_sample, y.min(img_h - 1));
+                    let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
+                    // Grid lines are darker than pure white (< 200)
+                    if lum < 200.0 { line_pixels += 1; }
+                    total_checked += 1;
+                }
+            }
+            // If majority of samples are dark, this is still grid area
+            if total_checked > 0 && line_pixels * 2 >= total_checked {
+                actual_h = test_row;
+                break;
+            }
+        }
+        actual_h
+    };
 
     if grid_w == 0 || grid_h == 0 {
         return Err("Detected grid is too small".to_string());
@@ -353,8 +385,11 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
             let g = gs[gs.len() / 2];
             let b = bs[bs.len() / 2];
 
-            // Skip white/near-white cells (empty)
-            if r > 245 && g > 245 && b > 245 {
+            // Skip empty cells: pure white or very near white
+            // Use strict threshold: only truly empty cells (exported as 255,255,255)
+            // Distance from pure white must be < 5 to be considered empty
+            let white_dist = ((255.0 - r as f64).powi(2) + (255.0 - g as f64).powi(2) + (255.0 - b as f64).powi(2)).sqrt();
+            if white_dist < 8.0 {
                 row_cells.push(String::new());
                 row_conf.push(1.0);
                 continue;
