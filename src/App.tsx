@@ -38,6 +38,7 @@ function App() {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [blueprintImporting, setBlueprintImporting] = useState(false);
+  const [blueprintProgress, setBlueprintProgress] = useState("");
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
@@ -183,12 +184,17 @@ function App() {
             ]);
             if (!path) return;
             setBlueprintImporting(true);
+            setBlueprintProgress("正在读取图片...");
             try {
+              setBlueprintProgress("正在构建调色板...");
               const palette = MARD_COLORS
                 .filter((c) => c.rgb)
                 .map((c) => ({ code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }));
+
+              setBlueprintProgress("正在分析网格结构和识别颜色...\n（首次可能需要10-30秒）");
               const result = await adapter.importBlueprint(path, palette);
-              // Convert color codes back to colorIndex
+
+              setBlueprintProgress("正在加载到画布...");
               const codeToIndex = new Map<string, number>();
               MARD_COLORS.forEach((c, i) => codeToIndex.set(c.code, i));
               const canvasData = result.cells.map((row) =>
@@ -205,6 +211,8 @@ function App() {
                 0,
                 0,
               );
+
+              setBlueprintImporting(false);
               let msg = `图纸导入成功！\n尺寸: ${result.width}×${result.height}\n格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`;
               if (result.mismatch_count > 0) {
                 msg += `\n\n⚠️ 发现 ${result.mismatch_count} 处颜色与文字不一致：`;
@@ -220,14 +228,13 @@ function App() {
               alert(msg);
             } catch (e) {
               alert(`图纸导入失败: ${e}`);
-            } finally {
               setBlueprintImporting(false);
             }
           }}
           disabled={blueprintImporting}
           className={`px-2 py-1 rounded hover:bg-gray-200 ${blueprintImporting ? "opacity-50" : ""}`}
         >
-          {blueprintImporting ? "导入中..." : "导入图纸"}
+          导入图纸
         </button>
         <button
           onClick={() => setShowExport(true)}

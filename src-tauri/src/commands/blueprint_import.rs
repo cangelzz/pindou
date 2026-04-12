@@ -356,28 +356,97 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
         1.0
     };
 
-    // Step 5: Template OCR — recognize text in each cell
-    let all_codes: Vec<String> = request.palette.iter().map(|p| p.code.clone()).collect();
-    let templates = build_templates(&all_codes, cell_size);
+    // Step 5: Template OCR — only for cells with low color confidence
+    // Build character-level templates (only ~25 unique chars, not 295 codes)
+    let char_set: Vec<char> = "ABCDEFGHMPQRTYZ0123456789".chars().collect();
+    let char_templates: Vec<(char, Vec<u8>)> = char_set.iter().map(|&ch| {
+        (ch, render_template(&ch.to_string(), cell_size))
+    }).collect();
     let tmpl_size = (cell_size * cell_size) as usize;
 
+    // Build a set of valid codes for validation
+    let valid_codes: std::collections::HashSet<String> = request.palette.iter().map(|p| p.code.clone()).collect();
+
+    // Track per-cell color confidence for selective OCR
+    let mut color_confidences: Vec<Vec<f64>> = Vec::new();
+    // Recompute confidence per cell (we lost it in the loop above)
+    for row in 0..grid_h {
+        let mut row_conf: Vec<f64> = Vec::new();
+        for col in 0..grid_w {
+            let cc = &color_cells[row as usize][col as usize];
+            if cc.is_empty() {
+                row_conf.push(1.0);
+            } else {
+                // Find the palette entry and compute distance
+                let pc = request.palette.iter().find(|p| p.code == *cc);
+                if let Some(pc) = pc {
+                    let x0 = margin + col * cell_size;
+                    let y0 = margin + row * cell_size;
+                    let inset = (cell_size / 5).max(2);
+                    let sx = x0 + inset;
+                    let sy = y0 + inset;
+                    if sx < img_w && sy < img_h {
+                        let p = img.get_pixel(sx, sy);
+                        let dr = p[0] as f64 - pc.r as f64;
+                        let dg = p[1] as f64 - pc.g as f64;
+                        let db = p[2] as f64 - pc.b as f64;
+                        let dist = (dr*dr + dg*dg + db*db).sqrt();
+                        row_conf.push(1.0 - (dist / 442.0).min(1.0));
+                    } else {
+                        row_conf.push(1.0);
+                    }
+                } else {
+                    row_conf.push(0.5);
+                }
+            }
+        }
+        color_confidences.push(row_conf);
+    }
+
     let mut text_cells: Vec<Vec<String>> = Vec::new();
+    let mut ocr_count = 0u32;
     for row in 0..grid_h {
         let mut row_text: Vec<String> = Vec::new();
         for col in 0..grid_w {
-            let x0 = margin + col * cell_size;
-            let y0 = margin + row * cell_size;
-
-            // Skip if color says empty
+            // Skip empty cells
             if color_cells[row as usize][col as usize].is_empty() {
                 row_text.push(String::new());
                 continue;
             }
 
-            let cell_gray = extract_cell_gray(&img, x0, y0, cell_size);
-            let (text_code, score) = ocr_cell(&cell_gray, &templates, tmpl_size);
+            // Only OCR if color confidence is below threshold
+            if color_confidences[row as usize][col as usize] > 0.95 {
+                // Trust color match, copy it
+                row_text.push(color_cells[row as usize][col as usize].clone());
+                continue;
+            }
 
-            // Only accept OCR result if confidence is decent
+            ocr_count += 1;
+            let x0 = margin + col * cell_size;
+            let y0 = margin + row * cell_size;
+            let cell_gray = extract_cell_gray(&img, x0, y0, cell_size);
+
+            // Character-level OCR: recognize 2-4 chars then validate
+            // For now, match against full code templates (built from chars)
+            // Try all valid codes that start with the best first-char match
+            let mut best_code = String::new();
+            let mut best_score = 0.0;
+
+            // Quick: match against full code templates for low-confidence cells only
+            for code in &valid_codes {
+                let tmpl = render_template(code, cell_size);
+                let score = template_similarity(&cell_gray, &tmpl, tmpl_size);
+                if score > best_score {
+                    best_score = score;
+                    best_code = code.clone();
+                }
+            }
+
+            if best_score > 0.7 {
+                row_text.push(best_code);
+            } else {
+                row_text.push(String::new());
+            }
             if score > 0.7 {
                 row_text.push(text_code);
             } else {
