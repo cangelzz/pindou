@@ -56,6 +56,21 @@ export interface SnapshotInfo {
 
 // ─── Platform adapter interface ──────────────────────────────────
 
+export interface BlueprintImportResult {
+  width: number;
+  height: number;
+  cells: string[][]; // color codes, empty string = empty cell
+  cell_size_detected: number;
+  confidence: number;
+}
+
+export interface PaletteColor {
+  code: string;
+  r: number;
+  g: number;
+  b: number;
+}
+
 export interface PlatformAdapter {
   // File dialogs
   showSaveDialog(filters: FileFilter[], defaultPath?: string): Promise<string | null>;
@@ -80,6 +95,9 @@ export interface PlatformAdapter {
   // Image export
   exportImage(request: ExportImageRequest): Promise<void>;
   exportPreview(request: ExportPreviewRequest): Promise<void>;
+
+  // Blueprint import
+  importBlueprint(path: string, palette: PaletteColor[]): Promise<BlueprintImportResult>;
 }
 
 // ─── Singleton adapter instance ──────────────────────────────────

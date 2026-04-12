@@ -7,6 +7,8 @@ import type {
   ExportImageRequest,
   ExportPreviewRequest,
   SnapshotInfo,
+  PaletteColor,
+  BlueprintImportResult,
 } from "./index";
 import type { ProjectFile } from "../types";
 
@@ -380,5 +382,9 @@ export class BrowserAdapter implements PlatformAdapter {
     );
     const filename = output_path.split(/[/\\]/).pop() ?? "preview.jpg";
     downloadBlob(blob, filename);
+  }
+
+  async importBlueprint(_path: string, _palette: PaletteColor[]): Promise<BlueprintImportResult> {
+    throw new Error("Blueprint import not yet supported in browser. Use desktop app.");
   }
 }
