@@ -121,6 +121,8 @@ mod tests {
         let import_request = BlueprintImportRequest {
             path: path_str.clone(),
             palette: palette.clone(),
+            grid_width: None,  // auto-detect
+            grid_height: None,
         };
         let result = import_blueprint(import_request).expect("Import failed");
 

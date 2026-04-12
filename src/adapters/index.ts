@@ -101,7 +101,7 @@ export interface PlatformAdapter {
   exportPreview(request: ExportPreviewRequest): Promise<void>;
 
   // Blueprint import
-  importBlueprint(path: string, palette: PaletteColor[]): Promise<BlueprintImportResult>;
+  importBlueprint(path: string, palette: PaletteColor[], gridWidth?: number, gridHeight?: number): Promise<BlueprintImportResult>;
 }
 
 // ─── Singleton adapter instance ──────────────────────────────────

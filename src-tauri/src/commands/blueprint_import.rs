@@ -14,8 +14,10 @@ static TEMPLATE_CACHE: Lazy<Mutex<HashMap<u32, HashMap<String, Vec<u8>>>>> =
 #[derive(Deserialize)]
 pub struct BlueprintImportRequest {
     pub path: String,
-    /// Known MARD color palette: [{code, r, g, b}, ...]
     pub palette: Vec<PaletteColor>,
+    /// Optional: if user knows the grid dimensions, provide them for accurate import
+    pub grid_width: Option<u32>,
+    pub grid_height: Option<u32>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -252,35 +254,37 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
 
     let (img_w, img_h) = img.dimensions();
 
-    // Step 1: Detect cell size from grid lines
-    let cell_size = detect_cell_size(&img)
-        .ok_or("Could not detect grid structure. Is this a blueprint image?")?;
+    // If user provided dimensions, use cell_size detection but trust user's w/h
+    let (cell_size, margin, grid_w, grid_h) = if let (Some(gw), Some(gh)) = (request.grid_width, request.grid_height) {
+        // Still detect cell_size from grid lines (robust)
+        // But use user's grid dimensions directly (avoids height detection issues)
+        let cs = detect_cell_size(&img)
+            .unwrap_or_else(|| {
+                // Fallback: estimate from image width
+                img_w / (gw + 1)
+            });
+        let m = cs;
+        (cs, m, gw, gh)
+    } else {
+        // Auto-detect
+        let cs = detect_cell_size(&img)
+            .ok_or("Could not detect grid structure. Is this a blueprint image?")?;
+        let m = detect_margin(&img, cs);
+        let w = (img_w.saturating_sub(m)) / cs;
 
-    // Step 2: Detect margin
-    let margin = detect_margin(&img, cell_size);
-
-    // Step 3: Calculate grid dimensions
-    // Width: use pixel division (no legend on side)
-    let grid_w = (img_w.saturating_sub(margin)) / cell_size;
-
-    // For height: check for horizontal grid lines at expected y positions
-    // A grid line at y = margin + row * cell_size means that row is still in the grid.
-    // Grid lines appear as pixels darker than the white background.
-    // For JPEG: lower threshold since compression blurs lines.
-    let grid_h = {
-        let max_possible = (img_h.saturating_sub(margin)) / cell_size;
-        let mut actual_h = 0u32;
+        // Height detection with tolerance for JPEG
+        let h = {
+            let max_possible = (img_h.saturating_sub(m)) / cs;
+            let mut actual_h = 0u32;
 
         for row_idx in 1..=max_possible {
-            let y = margin + row_idx * cell_size;
+            let y = m + row_idx * cs;
             if y >= img_h { break; }
 
-            // Check for a horizontal grid line at y:
-            // Sample several x positions and check if they're darker than pure white
             let mut dark_count = 0u32;
             let mut total_count = 0u32;
-            for col_off in 0..grid_w.min(20) {
-                let x = margin + col_off * cell_size + cell_size / 2;
+            for col_off in 0..w.min(20) {
+                let x = m + col_off * cs + cs / 2;
                 if x >= img_w { continue; }
                 let p = img.get_pixel(x, y);
                 let lum = 0.299 * p[0] as f64 + 0.587 * p[1] as f64 + 0.114 * p[2] as f64;
@@ -299,7 +303,9 @@ pub fn import_blueprint(request: BlueprintImportRequest) -> Result<BlueprintImpo
 
         // Fallback: if no lines detected, check from content
         if actual_h == 0 { actual_h = max_possible; }
-        actual_h
+            actual_h
+        };
+        (cs, m, w, h)
     };
 
     if grid_w == 0 || grid_h == 0 {

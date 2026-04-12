@@ -183,16 +183,31 @@ function App() {
               { name: "Image", extensions: ["png", "jpg", "jpeg", "bmp"] },
             ]);
             if (!path) return;
+
+            // Ask user for grid dimensions (optional, improves accuracy)
+            const sizeInput = prompt(
+              "输入图纸网格尺寸（宽x高），留空自动检测：\n例如: 100x100 或 52x52",
+              ""
+            );
+            let gridWidth: number | undefined;
+            let gridHeight: number | undefined;
+            if (sizeInput) {
+              const match = sizeInput.match(/(\d+)\s*[x×,]\s*(\d+)/i);
+              if (match) {
+                gridWidth = parseInt(match[1]);
+                gridHeight = parseInt(match[2]);
+              }
+            }
+
             setBlueprintImporting(true);
-            setBlueprintProgress("正在读取图片...");
+            setBlueprintProgress(gridWidth ? `正在导入 ${gridWidth}×${gridHeight} 图纸...` : "正在自动检测网格...");
             try {
-              setBlueprintProgress("正在构建调色板...");
               const palette = MARD_COLORS
                 .filter((c) => c.rgb)
                 .map((c) => ({ code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }));
 
-              setBlueprintProgress("正在分析网格结构和识别颜色...\n（首次可能需要10-30秒）");
-              const result = await adapter.importBlueprint(path, palette);
+              setBlueprintProgress("正在分析网格结构和识别颜色...");
+              const result = await adapter.importBlueprint(path, palette, gridWidth, gridHeight);
 
               setBlueprintProgress("正在加载到画布...");
               const codeToIndex = new Map<string, number>();
