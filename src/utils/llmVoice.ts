@@ -7,6 +7,7 @@
  */
 
 import type { VoiceCommand } from "../hooks/useVoiceControl";
+import { invoke } from "@tauri-apps/api/core";
 
 export interface LLMCommandResult {
   command: VoiceCommand;
@@ -109,7 +110,6 @@ export interface DeviceCodeInfo {
  * Step 1: Request a device code from GitHub (via Rust backend).
  */
 export async function requestDeviceCode(): Promise<DeviceCodeInfo> {
-  const { invoke } = await import("@tauri-apps/api/core");
   return await invoke<DeviceCodeInfo>("github_request_device_code");
 }
 
@@ -122,7 +122,6 @@ export async function pollForToken(
   expiresIn: number,
   onStatus?: (status: string) => void,
 ): Promise<boolean> {
-  const { invoke } = await import("@tauri-apps/api/core");
   const deadline = Date.now() + expiresIn * 1000;
   const pollInterval = Math.max(interval, 5) * 1000;
 
@@ -177,7 +176,7 @@ export async function llmMatchCommand(
   }
 
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
+    // invoke imported at top level
     const raw = await invoke<string>("github_models_chat", {
       token,
       transcript,
