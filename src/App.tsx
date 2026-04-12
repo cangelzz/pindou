@@ -529,6 +529,17 @@ function App() {
       {showImport && <ImageImportDialog onClose={() => setShowImport(false)} />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
 
+      {/* Blueprint Import Progress Modal */}
+      {blueprintImporting && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[320px] p-6 flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <h3 className="font-semibold text-sm">导入图纸中</h3>
+            <p className="text-xs text-gray-500 text-center whitespace-pre-line">{blueprintProgress}</p>
+          </div>
+        </div>
+      )}
+
       {/* New Canvas Dialog */}
       {showNewCanvas && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
