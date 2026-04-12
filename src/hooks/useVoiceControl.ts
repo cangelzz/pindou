@@ -10,6 +10,7 @@ export type VoiceCommand =
   | "confirm"
   | "summary"
   | "goto"
+  | "still_here"
   | "unknown";
 
 interface VoiceCommandResult {
@@ -32,6 +33,7 @@ const EXACT_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
   { patterns: /^(取消|关闭|清除|取消高亮)$/i, command: "cancel" },
   { patterns: /^(确认|好了|完成|确定)$/i, command: "confirm" },
   { patterns: /^(总结|统计|汇总|报告|播报|念一下|读一下|数一下|数数|看看|说说|告诉我|报数|清点|盘点|多少|几种)$/i, command: "summary" },
+  { patterns: /^(还在|还在呢|我在|我在呢|在的|在|继续|我还在)$/i, command: "still_here" },
   { patterns: /^(up|go up|move up)$/i, command: "up" },
   { patterns: /^(down|go down|move down)$/i, command: "down" },
   { patterns: /^(left|go left|move left)$/i, command: "left" },
@@ -90,6 +92,7 @@ function matchCommand(text: string): VoiceCommand {
   if (/取消|关闭|清除/.test(cleaned)) return "cancel";
   if (/确认|完成/.test(cleaned)) return "confirm";
   if (/总结|统计|汇总|报告|播报|念|读|数[一数]|清点|盘点|几种|多少/.test(cleaned)) return "summary";
+  if (/还在|我在|在的|继续/.test(cleaned)) return "still_here";
   if (/\bup\b/i.test(cleaned)) return "up";
   if (/\bdown\b/i.test(cleaned)) return "down";
   if (/\bleft\b/i.test(cleaned)) return "left";
@@ -126,23 +129,43 @@ export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: U
   const onCommandRef = useRef(onCommand);
   onCommandRef.current = onCommand;
 
-  // Auto-stop after 5 minutes of no valid command
+  // Auto-stop: 10 min idle → ask "还在吗" → 2 min no response → stop
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const IDLE_TIMEOUT = 5 * 60 * 1000;
+  const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const IDLE_TIMEOUT = 10 * 60 * 1000;
+  const PROMPT_TIMEOUT = 2 * 60 * 1000;
+
+  const stopListening = useCallback(() => {
+    if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
+    if (promptTimerRef.current) { clearTimeout(promptTimerRef.current); promptTimerRef.current = null; }
+    if (recognitionRef.current) {
+      const ref = recognitionRef.current;
+      recognitionRef.current = null;
+      ref.abort();
+      setIsListening(false);
+      setLastResult(null);
+    }
+  }, []);
 
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (promptTimerRef.current) { clearTimeout(promptTimerRef.current); promptTimerRef.current = null; }
     idleTimerRef.current = setTimeout(() => {
-      // Auto-stop after idle timeout
-      if (recognitionRef.current) {
-        const ref = recognitionRef.current;
-        recognitionRef.current = null;
-        ref.abort();
-        setIsListening(false);
-        setLastResult(null);
+      // Ask user if still there
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance("还在吗");
+        u.lang = "zh-CN";
+        u.rate = 1.2;
+        u.volume = 0.9;
+        window.speechSynthesis.speak(u);
       }
+      // Wait 2 more minutes for response
+      promptTimerRef.current = setTimeout(() => {
+        stopListening();
+      }, PROMPT_TIMEOUT);
     }, IDLE_TIMEOUT);
-  }, []);
+  }, [stopListening]);
 
   const start = useCallback(() => {
     if (!isSupported) return;
@@ -240,9 +263,13 @@ export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: U
       clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
     }
+    if (promptTimerRef.current) {
+      clearTimeout(promptTimerRef.current);
+      promptTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       const ref = recognitionRef.current;
-      recognitionRef.current = null; // prevent auto-restart
+      recognitionRef.current = null;
       ref.abort();
     }
     setIsListening(false);

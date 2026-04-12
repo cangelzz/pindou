@@ -81,8 +81,18 @@ export function PixelCanvas() {
       const LABELS: Record<string, string> = {
         up: "⬆ 上", down: "⬇ 下", left: "⬅ 左", right: "➡ 右",
         cancel: "❌ 取消", confirm: "✅ 确认", summary: "📊 总结",
-        goto: "📍 定位", unknown: `? ${result.raw}`,
+        goto: "📍 定位", still_here: "👋 还在", unknown: `? ${result.raw}`,
       };
+
+      // Handle "still here" — just confirm and reset timer
+      if (result.command === "still_here") {
+        playDone("A");
+        setTimeout(() => speak("好的，继续", "zh-CN"), 250);
+        setVoiceFeedback("👋 还在");
+        if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
+        voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 1500);
+        return;
+      }
 
       // Handle summary command
       if (result.command === "summary") {

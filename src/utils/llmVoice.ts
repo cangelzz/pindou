@@ -57,10 +57,11 @@ Positioning by coordinates:
   - "定位到15 20" / "定位到十五二十" → {"command":"goto","col":15,"row":20}
 
 Other commands:
-  {"command":"cancel|confirm|summary"}
+  {"command":"cancel|confirm|summary|still_here"}
   - 取消/关闭/清除 → {"command":"cancel"}
   - 确认/完成/好了 → {"command":"confirm"}
   - 总结/统计/报告/播报/数一下 → {"command":"summary"}
+  - 还在/我在/在的/继续 → {"command":"still_here"}
 
 If unrecognizable: {"command":"unknown"}
 Always respond with valid JSON only.`;
@@ -188,7 +189,7 @@ export async function llmMatchCommand(
     console.log("[LLM] transcript:", transcript, "→ raw:", raw, "→ cleaned:", cleaned);
     const data = JSON.parse(cleaned);
 
-    const validCommands: VoiceCommand[] = ["up", "down", "left", "right", "cancel", "confirm", "summary", "goto"];
+    const validCommands: VoiceCommand[] = ["up", "down", "left", "right", "cancel", "confirm", "summary", "goto", "still_here"];
     const command = validCommands.includes(data.command) ? data.command as VoiceCommand : "unknown";
 
     return {
