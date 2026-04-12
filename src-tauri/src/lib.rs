@@ -24,6 +24,7 @@ pub fn run() {
             commands::github_auth::github_request_device_code,
             commands::github_auth::github_poll_token,
             commands::github_auth::github_models_chat,
+            commands::blueprint_import::import_blueprint,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

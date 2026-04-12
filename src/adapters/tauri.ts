@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save, open as dialogOpen } from "@tauri-apps/plugin-dialog";
-import type { PlatformAdapter, FileFilter, ImagePreview, PixelData, CropRect, ExportImageRequest, ExportPreviewRequest, SnapshotInfo } from "./index";
+import type { PlatformAdapter, FileFilter, ImagePreview, PixelData, CropRect, ExportImageRequest, ExportPreviewRequest, SnapshotInfo, PaletteColor, BlueprintImportResult } from "./index";
 import type { ProjectFile } from "../types";
 
 export class TauriAdapter implements PlatformAdapter {
@@ -52,5 +52,9 @@ export class TauriAdapter implements PlatformAdapter {
 
   async exportPreview(request: ExportPreviewRequest): Promise<void> {
     await invoke("export_preview", { request });
+  }
+
+  async importBlueprint(path: string, palette: PaletteColor[]): Promise<BlueprintImportResult> {
+    return await invoke<BlueprintImportResult>("import_blueprint", { request: { path, palette } });
   }
 }
