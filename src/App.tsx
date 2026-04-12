@@ -6,6 +6,8 @@ import { BeadCounter } from "./components/Stats/BeadCounter";
 import { ImageImportDialog } from "./components/Import/ImageImportDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
 import { useEditorStore } from "./store/editorStore";
+import { getAdapter } from "./adapters";
+import { MARD_COLORS } from "./data/mard221";
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
 function rgbaToHex(rgba: string): string {
@@ -35,6 +37,7 @@ function App() {
   const [showNewCanvas, setShowNewCanvas] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [blueprintImporting, setBlueprintImporting] = useState(false);
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
@@ -171,6 +174,48 @@ function App() {
           className="px-2 py-1 rounded hover:bg-gray-200"
         >
           导入图片
+        </button>
+        <button
+          onClick={async () => {
+            const adapter = getAdapter();
+            const path = await adapter.showOpenDialog([
+              { name: "Image", extensions: ["png", "jpg", "jpeg", "bmp"] },
+            ]);
+            if (!path) return;
+            setBlueprintImporting(true);
+            try {
+              const palette = MARD_COLORS
+                .filter((c) => c.rgb)
+                .map((c) => ({ code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }));
+              const result = await adapter.importBlueprint(path, palette);
+              // Convert color codes back to colorIndex
+              const codeToIndex = new Map<string, number>();
+              MARD_COLORS.forEach((c, i) => codeToIndex.set(c.code, i));
+              const canvasData = result.cells.map((row) =>
+                row.map((code) => ({
+                  colorIndex: code ? (codeToIndex.get(code) ?? null) : null,
+                }))
+              );
+              useEditorStore.getState().placeImageOnCanvas(
+                canvasData,
+                result.width,
+                result.height,
+                result.width,
+                result.height,
+                0,
+                0,
+              );
+              alert(`图纸导入成功！\n尺寸: ${result.width}×${result.height}\n检测格子大小: ${result.cell_size_detected}px\n置信度: ${Math.round(result.confidence * 100)}%`);
+            } catch (e) {
+              alert(`图纸导入失败: ${e}`);
+            } finally {
+              setBlueprintImporting(false);
+            }
+          }}
+          disabled={blueprintImporting}
+          className={`px-2 py-1 rounded hover:bg-gray-200 ${blueprintImporting ? "opacity-50" : ""}`}
+        >
+          {blueprintImporting ? "导入中..." : "导入图纸"}
         </button>
         <button
           onClick={() => setShowExport(true)}
