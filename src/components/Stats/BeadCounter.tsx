@@ -74,6 +74,25 @@ export function BeadCounter() {
         </div>
         <p className="text-[10px] text-gray-400">
           {totalColors} 种颜色 · {totalBeads} 颗拼豆
+          {counts.length > 0 && (
+            <button
+              onClick={() => {
+                const header = "色号,名称,HEX,数量\n";
+                const rows = counts.map((c) => `${c.code},${c.name},${c.hex},${c.count}`).join("\n");
+                const csv = "\uFEFF" + header + rows; // BOM for Excel Chinese support
+                const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "pindou_shopping_list.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="ml-2 text-blue-500 hover:text-blue-700 underline"
+            >
+              导出CSV
+            </button>
+          )}
         </p>
       </div>
 
