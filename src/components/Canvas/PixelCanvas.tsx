@@ -4,6 +4,7 @@ import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
 import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl";
 import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../../utils/audioFeedback";
+import { PreviewThumbnail } from "./PreviewThumbnail";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,6 +53,10 @@ export function PixelCanvas() {
 
   // Resize counter to trigger re-renders after canvas resize
   const [resizeCount, setResizeCount] = useState(0);
+  const [containerDims, setContainerDims] = useState({ w: 0, h: 0 });
+
+  // Preview thumbnail
+  const [showThumbnail, setShowThumbnail] = useState(false);
 
   // Blueprint mode: focused 5×5 grid group highlight
   const [focusGroup, setFocusGroup] = useState<{ groupCol: number; groupRow: number } | null>(null);
@@ -227,6 +232,7 @@ export function PixelCanvas() {
       c.getContext("2d")?.scale(dpr, dpr);
     }
     setResizeCount((c) => c + 1);
+    setContainerDims({ w, h });
   }, []);
 
   useEffect(() => {
@@ -670,6 +676,14 @@ export function PixelCanvas() {
         {voiceFeedback && (
           <span className="text-green-600 font-semibold">{voiceFeedback}</span>
         )}
+        <div className="flex-1" />
+        <button
+          onClick={() => setShowThumbnail(!showThumbnail)}
+          className={`px-1.5 py-0.5 rounded text-[10px] ${showThumbnail ? "bg-blue-100 text-blue-600" : "hover:bg-gray-200"}`}
+          title={showThumbnail ? "关闭预览缩略图" : "显示预览缩略图"}
+        >
+          🖼️ 预览
+        </button>
       </div>
 
       {/* Canvas area */}
@@ -703,6 +717,12 @@ export function PixelCanvas() {
         />
         <canvas ref={gridCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={axisCanvasRef} className="absolute inset-0 pointer-events-none" />
+        {showThumbnail && containerDims.w > 0 && (
+          <PreviewThumbnail
+            containerWidth={containerDims.w}
+            containerHeight={containerDims.h}
+          />
+        )}
       </div>
     </div>
   );
