@@ -71,6 +71,9 @@ interface EditorState {
     [key: string]: boolean;
   };
 
+  // Custom color groups
+  customColorGroups: { id: string; name: string; colorIndices: number[] }[];
+
   // Actions
   newCanvas: (width: number, height: number) => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
@@ -86,6 +89,10 @@ interface EditorState {
   setVoiceControlEnabled: (on: boolean) => void;
   setAiVoiceEnabled: (on: boolean) => void;
   setBetaFeature: (key: string, on: boolean) => void;
+  addCustomColorGroup: (name: string) => void;
+  removeCustomColorGroup: (id: string) => void;
+  renameCustomColorGroup: (id: string, name: string) => void;
+  toggleColorInGroup: (groupId: string, colorIndex: number) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -267,6 +274,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     aiVoice: false,
   },
 
+  customColorGroups: JSON.parse(localStorage.getItem("pindou_custom_groups") || "[]"),
+
   newCanvas: (width, height) => {
     const layer = createDefaultLayer(width, height);
     set({
@@ -381,6 +390,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setBetaFeature: (key, on) => set((state) => ({
     betaFeatures: { ...state.betaFeatures, [key]: on },
   })),
+
+  addCustomColorGroup: (name) => set((state) => {
+    const id = `custom_${Date.now()}`;
+    const groups = [...state.customColorGroups, { id, name, colorIndices: [] }];
+    localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
+    return { customColorGroups: groups };
+  }),
+
+  removeCustomColorGroup: (id) => set((state) => {
+    const groups = state.customColorGroups.filter((g) => g.id !== id);
+    localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
+    return { customColorGroups: groups };
+  }),
+
+  renameCustomColorGroup: (id, name) => set((state) => {
+    const groups = state.customColorGroups.map((g) => g.id === id ? { ...g, name } : g);
+    localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
+    return { customColorGroups: groups };
+  }),
+
+  toggleColorInGroup: (groupId, colorIndex) => set((state) => {
+    const groups = state.customColorGroups.map((g) => {
+      if (g.id !== groupId) return g;
+      const has = g.colorIndices.includes(colorIndex);
+      return {
+        ...g,
+        colorIndices: has
+          ? g.colorIndices.filter((i) => i !== colorIndex)
+          : [...g.colorIndices, colorIndex],
+      };
+    });
+    localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
+    return { customColorGroups: groups };
+  }),
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },

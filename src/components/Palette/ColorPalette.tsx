@@ -25,6 +25,10 @@ export function ColorPalette() {
   const setHighlightColor = useEditorStore((s) => s.setHighlightColor);
   const countColor = useEditorStore((s) => s.countColor);
   const replaceColor = useEditorStore((s) => s.replaceColor);
+  const customColorGroups = useEditorStore((s) => s.customColorGroups);
+  const addCustomColorGroup = useEditorStore((s) => s.addCustomColorGroup);
+  const removeCustomColorGroup = useEditorStore((s) => s.removeCustomColorGroup);
+  const toggleColorInGroup = useEditorStore((s) => s.toggleColorInGroup);
   const [search, setSearch] = useState("");
   const [groupId, setGroupId] = useState("mard221");
   const [showReplace, setShowReplace] = useState(false);
@@ -45,12 +49,26 @@ export function ColorPalette() {
     return countColor(selectedColorIndex);
   }, [selectedColorIndex, countColor]);
 
+  // Check if current group is a custom group
+  const isCustomGroup = groupId.startsWith("custom_");
+  const currentCustomGroup = customColorGroups.find((g) => g.id === groupId);
+
   // Group filtered items by series
   const grouped = useMemo(() => {
-    const groupIndices = new Set(getGroupIndices(groupId));
-    let items = MARD_COLORS
-      .map((c, i) => ({ color: c, index: i }))
-      .filter(({ index }) => groupIndices.has(index));
+    let items: { color: typeof MARD_COLORS[0]; index: number }[];
+
+    if (isCustomGroup && currentCustomGroup) {
+      // Custom group: use explicit color indices
+      const indexSet = new Set(currentCustomGroup.colorIndices);
+      items = MARD_COLORS
+        .map((c, i) => ({ color: c, index: i }))
+        .filter(({ index }) => indexSet.has(index));
+    } else {
+      const groupIndices = new Set(getGroupIndices(groupId));
+      items = MARD_COLORS
+        .map((c, i) => ({ color: c, index: i }))
+        .filter(({ index }) => groupIndices.has(index));
+    }
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -70,7 +88,7 @@ export function ColorPalette() {
       map.get(prefix)!.push(item);
     }
     return map;
-  }, [search, groupId]);
+  }, [search, groupId, isCustomGroup, currentCustomGroup]);
 
   const totalCount = useMemo(() => {
     let n = 0;
@@ -85,15 +103,49 @@ export function ColorPalette() {
           <h3 className="text-xs font-semibold text-gray-600">色板</h3>
           <span className="text-[10px] text-gray-400">({totalCount})</span>
         </div>
-        <select
-          value={groupId}
-          onChange={(e) => setGroupId(e.target.value)}
-          className="w-full px-1 py-0.5 text-xs border rounded mb-1"
-        >
-          {COLOR_GROUPS.map((g) => (
-            <option key={g.id} value={g.id}>{g.name}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-1 mb-1">
+          <select
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            className="flex-1 px-1 py-0.5 text-xs border rounded"
+          >
+            {COLOR_GROUPS.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+            {customColorGroups.length > 0 && (
+              <option disabled>──── 自定义 ────</option>
+            )}
+            {customColorGroups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name} ({g.colorIndices.length})</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              const name = prompt("输入自定义色组名称：", "我的色组");
+              if (name) {
+                addCustomColorGroup(name);
+              }
+            }}
+            className="w-6 h-6 flex items-center justify-center rounded border hover:bg-gray-100 text-xs shrink-0"
+            title="新建自定义色组"
+          >
+            +
+          </button>
+          {isCustomGroup && (
+            <button
+              onClick={() => {
+                if (confirm(`确定删除色组「${currentCustomGroup?.name}」？`)) {
+                  removeCustomColorGroup(groupId);
+                  setGroupId("mard221");
+                }
+              }}
+              className="w-6 h-6 flex items-center justify-center rounded border hover:bg-red-100 text-red-500 text-xs shrink-0"
+              title="删除当前自定义色组"
+            >
+              ×
+            </button>
+          )}
+        </div>
         <input
           type="text"
           placeholder="搜索色号/名称..."
@@ -129,6 +181,27 @@ export function ColorPalette() {
                     onClick={() => {
                       setSelectedColor(index);
                       setTool("pen");
+                    }}
+                    onContextMenu={(e) => {
+                      // Right-click: add/remove from a custom group
+                      if (customColorGroups.length === 0) return;
+                      e.preventDefault();
+                      if (isCustomGroup && currentCustomGroup) {
+                        // Toggle in current custom group
+                        toggleColorInGroup(groupId, index);
+                      } else if (customColorGroups.length === 1) {
+                        toggleColorInGroup(customColorGroups[0].id, index);
+                      } else {
+                        // Show which group to add to (simple prompt)
+                        const names = customColorGroups.map((g, i) => `${i + 1}. ${g.name}`).join("\n");
+                        const choice = prompt(`添加 ${color.code} 到哪个自定义色组？\n${names}`, "1");
+                        if (choice) {
+                          const idx = parseInt(choice) - 1;
+                          if (idx >= 0 && idx < customColorGroups.length) {
+                            toggleColorInGroup(customColorGroups[idx].id, index);
+                          }
+                        }
+                      }
                     }}
                     className={`flex items-center justify-center rounded-sm border transition-all
                       ${isSelected ? "ring-2 ring-blue-500 ring-offset-1 z-10" : "border-gray-200 hover:border-gray-400"}`}
