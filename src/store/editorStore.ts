@@ -93,6 +93,7 @@ interface EditorState {
   removeCustomColorGroup: (id: string) => void;
   renameCustomColorGroup: (id: string, name: string) => void;
   toggleColorInGroup: (groupId: string, colorIndex: number) => void;
+  reorderCustomGroupColors: (groupId: string, colorIndices: number[]) => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -421,6 +422,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           : [...g.colorIndices, colorIndex],
       };
     });
+    localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
+    return { customColorGroups: groups };
+  }),
+
+  reorderCustomGroupColors: (groupId, colorIndices) => set((state) => {
+    const groups = state.customColorGroups.map((g) =>
+      g.id === groupId ? { ...g, colorIndices } : g
+    );
     localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
     return { customColorGroups: groups };
   }),

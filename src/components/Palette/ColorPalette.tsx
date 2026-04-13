@@ -29,11 +29,14 @@ export function ColorPalette() {
   const addCustomColorGroup = useEditorStore((s) => s.addCustomColorGroup);
   const removeCustomColorGroup = useEditorStore((s) => s.removeCustomColorGroup);
   const toggleColorInGroup = useEditorStore((s) => s.toggleColorInGroup);
+  const reorderCustomGroupColors = useEditorStore((s) => s.reorderCustomGroupColors);
   const [search, setSearch] = useState("");
   const [groupId, setGroupId] = useState("mard221");
   const [showReplace, setShowReplace] = useState(false);
   const [replaceTargetIndex, setReplaceTargetIndex] = useState<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
 
   // Auto-scroll to selected color in palette
   useEffect(() => {
@@ -145,6 +148,21 @@ export function ColorPalette() {
               ×
             </button>
           )}
+          {isCustomGroup && currentCustomGroup && currentCustomGroup.colorIndices.length > 1 && (
+            <button
+              onClick={() => {
+                // Sort by frequency (most used first)
+                const sorted = [...currentCustomGroup.colorIndices].sort((a, b) => {
+                  return countColor(b) - countColor(a);
+                });
+                reorderCustomGroupColors(groupId, sorted);
+              }}
+              className="w-6 h-6 flex items-center justify-center rounded border hover:bg-gray-100 text-xs shrink-0"
+              title="按使用频率排序（最多的在前）"
+            >
+              ↕
+            </button>
+          )}
         </div>
         <input
           type="text"
@@ -178,6 +196,22 @@ export function ColorPalette() {
                   <button
                     key={color.code}
                     data-color-index={index}
+                    draggable={isCustomGroup}
+                    onDragStart={() => { if (isCustomGroup) dragItem.current = index; }}
+                    onDragOver={(e) => { if (isCustomGroup) { e.preventDefault(); dragOverItem.current = index; } }}
+                    onDrop={() => {
+                      if (!isCustomGroup || !currentCustomGroup || dragItem.current === null || dragOverItem.current === null) return;
+                      if (dragItem.current === dragOverItem.current) return;
+                      const list = [...currentCustomGroup.colorIndices];
+                      const fromIdx = list.indexOf(dragItem.current);
+                      const toIdx = list.indexOf(dragOverItem.current);
+                      if (fromIdx === -1 || toIdx === -1) return;
+                      list.splice(fromIdx, 1);
+                      list.splice(toIdx, 0, dragItem.current);
+                      reorderCustomGroupColors(groupId, list);
+                      dragItem.current = null;
+                      dragOverItem.current = null;
+                    }}
                     onClick={() => {
                       setSelectedColor(index);
                       setTool("pen");
