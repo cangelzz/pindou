@@ -5,6 +5,7 @@ import { MARD_COLORS } from "../../data/mard221";
 import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl";
 import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../../utils/audioFeedback";
 import { PreviewThumbnail } from "./PreviewThumbnail";
+import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
 
 export function PixelCanvas() {
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,6 +50,11 @@ export function PixelCanvas() {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
   const isPanning = useRef(false);
+
+  // Shape tool state: track start cell and current preview cells
+  const shapeStart = useRef<{ row: number; col: number } | null>(null);
+  const [shapePreview, setShapePreview] = useState<[number, number][] | null>(null);
+  const shapeCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Resize counter to trigger re-renders after canvas resize
   const [resizeCount, setResizeCount] = useState(0);
@@ -405,6 +411,48 @@ export function PixelCanvas() {
     }
   }, [canvasSize, canvasData, cellSize, offsetX, offsetY, gridConfig, blueprintMode, gridFocusMode, focusGroup, resizeCount]);
 
+  // Render shape preview overlay
+  useEffect(() => {
+    const canvas = shapeCanvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx || !containerRef.current) return;
+
+    const w = containerRef.current.clientWidth;
+    const h = containerRef.current.clientHeight;
+    canvas!.width = w;
+    canvas!.height = h;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!shapePreview || shapePreview.length === 0) return;
+
+    // Get selected color for preview
+    const color = selectedColorIndex !== null ? MARD_COLORS[selectedColorIndex] : null;
+    if (color?.rgb) {
+      ctx.fillStyle = `rgba(${color.rgb[0]},${color.rgb[1]},${color.rgb[2]},0.5)`;
+    } else {
+      ctx.fillStyle = "rgba(100,100,255,0.3)";
+    }
+
+    for (const [r, c] of shapePreview) {
+      if (r < 0 || r >= canvasSize.height || c < 0 || c >= canvasSize.width) continue;
+      const displayCol = isMirror ? canvasSize.width - 1 - c : c;
+      const x = displayCol * cellSize + offsetX;
+      const y = r * cellSize + offsetY;
+      ctx.fillRect(x, y, cellSize, cellSize);
+    }
+
+    // Draw outline
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.lineWidth = 1;
+    for (const [r, c] of shapePreview) {
+      if (r < 0 || r >= canvasSize.height || c < 0 || c >= canvasSize.width) continue;
+      const displayCol = isMirror ? canvasSize.width - 1 - c : c;
+      const x = displayCol * cellSize + offsetX;
+      const y = r * cellSize + offsetY;
+      ctx.strokeRect(x + 0.5, y + 0.5, cellSize - 1, cellSize - 1);
+    }
+  }, [shapePreview, cellSize, offsetX, offsetY, canvasSize, selectedColorIndex, isMirror]);
+
   // Render floating axis labels in blueprint mode
   useEffect(() => {
     const ctx = axisCanvasRef.current?.getContext("2d");
@@ -493,6 +541,35 @@ export function PixelCanvas() {
     [offsetX, offsetY, cellSize, canvasSize, isMirror]
   );
 
+  const isShapeTool = currentTool === "line" || currentTool === "rect" || currentTool === "circle";
+
+  // Compute shape cells from start to end, applying Shift constraint
+  const computeShapeCells = useCallback(
+    (startRow: number, startCol: number, endRow: number, endCol: number, shiftKey: boolean): [number, number][] => {
+      switch (currentTool) {
+        case "line": {
+          let [er, ec] = [endRow, endCol];
+          if (shiftKey) [er, ec] = constrainLine(startRow, startCol, endRow, endCol);
+          return lineCells(startRow, startCol, er, ec);
+        }
+        case "rect": {
+          let [er, ec] = [endRow, endCol];
+          if (shiftKey) [er, ec] = constrainRect(startRow, startCol, endRow, endCol);
+          return rectCells(startRow, startCol, er, ec, false);
+        }
+        case "circle": {
+          const dr = Math.abs(endRow - startRow);
+          const dc = Math.abs(endCol - startCol);
+          const radius = Math.round(Math.sqrt(dr * dr + dc * dc));
+          return circleCells(startRow, startCol, radius, false);
+        }
+        default:
+          return [];
+      }
+    },
+    [currentTool]
+  );
+
   // Handle tool action on a cell
   const applyTool = useCallback(
     (row: number, col: number) => {
@@ -557,12 +634,20 @@ export function PixelCanvas() {
       }
 
       if (e.button === 0) {
-        isDragging.current = true;
         const cell = screenToCell(e.clientX, e.clientY);
-        if (cell) applyTool(cell.row, cell.col);
+        if (!cell) return;
+
+        if (isShapeTool) {
+          // Shape tools: record start point, begin preview
+          shapeStart.current = cell;
+          setShapePreview([]);
+        } else {
+          isDragging.current = true;
+          applyTool(cell.row, cell.col);
+        }
       }
     },
-    [currentTool, offsetX, offsetY, screenToCell, applyTool]
+    [currentTool, offsetX, offsetY, screenToCell, applyTool, isShapeTool]
   );
 
   const handleMouseMove = useCallback(
@@ -574,18 +659,45 @@ export function PixelCanvas() {
         return;
       }
 
+      // Shape tool preview
+      if (shapeStart.current && isShapeTool) {
+        const cell = screenToCell(e.clientX, e.clientY);
+        if (cell) {
+          const cells = computeShapeCells(
+            shapeStart.current.row, shapeStart.current.col,
+            cell.row, cell.col, e.shiftKey
+          );
+          setShapePreview(cells);
+        }
+        return;
+      }
+
       if (isDragging.current && e.buttons === 1) {
         const cell = screenToCell(e.clientX, e.clientY);
         if (cell) applyTool(cell.row, cell.col);
       }
     },
-    [screenToCell, applyTool, setOffset]
+    [screenToCell, applyTool, setOffset, isShapeTool, computeShapeCells]
   );
 
-  const handleMouseUp = useCallback(() => {
-    isDragging.current = false;
-    isPanning.current = false;
-  }, []);
+  const handleMouseUp = useCallback(
+    (_e: React.MouseEvent) => {
+      // Shape tool: commit the shape
+      if (shapeStart.current && isShapeTool && shapePreview && shapePreview.length > 0) {
+        const entries = shapePreview
+          .filter(([r, c]) => r >= 0 && r < canvasSize.height && c >= 0 && c < canvasSize.width)
+          .map(([r, c]) => ({ row: r, col: c, colorIndex: selectedColorIndex }));
+        if (entries.length > 0) {
+          useEditorStore.getState().batchSetCells(entries);
+        }
+      }
+      shapeStart.current = null;
+      setShapePreview(null);
+      isDragging.current = false;
+      isPanning.current = false;
+    },
+    [isShapeTool, shapePreview, canvasSize, selectedColorIndex]
+  );
 
   // Double-click to set/toggle grid focus (works in any tool mode including pan)
   // Uses visual (screen) column, NOT mirrored data column
@@ -634,7 +746,23 @@ export function PixelCanvas() {
       } else if (e.key === " ") {
         e.preventDefault();
         useEditorStore.getState().setTool("pan");
+      } else if (!e.ctrlKey && !e.metaKey) {
+        // Tool shortcuts (single key, no modifier)
+        const toolMap: Record<string, import("../../types").EditorTool> = {
+          p: "pen", l: "line", r: "rect", c: "circle",
+          f: "fill", e: "eraser", i: "eyedropper",
+        };
+        const tool = toolMap[e.key.toLowerCase()];
+        if (tool) {
+          e.preventDefault();
+          useEditorStore.getState().setTool(tool);
+        }
       } else if (e.key === "Escape") {
+        // Cancel shape in progress
+        if (shapeStart.current) {
+          shapeStart.current = null;
+          setShapePreview(null);
+        }
         setFocusGroup(null);
       } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
         // Move focus group with arrow keys
@@ -756,6 +884,7 @@ export function PixelCanvas() {
           style={{ imageRendering: "pixelated" }}
         />
         <canvas ref={gridCanvasRef} className="absolute inset-0 pointer-events-none" />
+        <canvas ref={shapeCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={axisCanvasRef} className="absolute inset-0 pointer-events-none" />
         {showThumbnail && containerDims.w > 0 && (
           <PreviewThumbnail
