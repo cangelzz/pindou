@@ -160,10 +160,11 @@ function App() {
 
     // Tauri desktop: listen for window close request
     let unlisten: (() => void) | null = null;
+    let forceClose = false;
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
       const win = getCurrentWindow();
       win.onCloseRequested(async (event) => {
-        if (!useEditorStore.getState().isDirty) return; // not dirty → close normally
+        if (forceClose || !useEditorStore.getState().isDirty) return; // close normally
         // Prevent close first, then ask
         event.preventDefault();
         const { ask } = await import("@tauri-apps/plugin-dialog");
@@ -172,8 +173,8 @@ function App() {
           kind: "warning",
         });
         if (shouldExit) {
-          // User confirmed — force close
-          win.destroy();
+          forceClose = true;
+          win.close();
         }
       }).then((fn) => { unlisten = fn; });
     }).catch(() => {
