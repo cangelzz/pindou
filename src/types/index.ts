@@ -9,7 +9,7 @@ export interface MardColor {
   rgb: [number, number, number] | null;
 }
 
-export type EditorTool = "pen" | "eraser" | "eyedropper" | "pan" | "fill" | "line" | "rect" | "circle";
+export type EditorTool = "pen" | "eraser" | "eyedropper" | "pan" | "fill" | "line" | "rect" | "circle" | "select" | "wand";
 
 export interface CanvasSize {
   width: number;

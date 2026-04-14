@@ -74,6 +74,12 @@ interface EditorState {
   // Custom color groups
   customColorGroups: { id: string; name: string; colorIndices: number[] }[];
 
+  // Selection
+  selection: Set<string> | null;
+  selectionBounds: { r1: number; c1: number; r2: number; c2: number } | null;
+  clipboard: { cells: Map<string, CanvasCell>; width: number; height: number } | null;
+  floatingSelection: { cells: Map<string, CanvasCell>; offsetRow: number; offsetCol: number } | null;
+
   // Actions
   newCanvas: (width: number, height: number) => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
@@ -106,6 +112,15 @@ interface EditorState {
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
   resizeCanvas: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => void;
   countLostPixels: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => number;
+  setSelection: (cells: Set<string>) => void;
+  clearSelection: () => void;
+  selectAll: () => void;
+  copySelection: () => void;
+  cutSelection: () => void;
+  pasteClipboard: () => void;
+  deleteSelection: () => void;
+  commitFloatingSelection: () => void;
+  moveSelectionCells: (dRow: number, dCol: number) => void;
   placeImageOnCanvas: (
     imageData: CanvasData,
     imageW: number,
@@ -219,6 +234,18 @@ function defaultEdgePadding(width: number, height: number): number {
   return 0;
 }
 
+function computeBounds(cells: Set<string>): { r1: number; c1: number; r2: number; c2: number } {
+  let r1 = Infinity, c1 = Infinity, r2 = -Infinity, c2 = -Infinity;
+  for (const key of cells) {
+    const [r, c] = key.split(",").map(Number);
+    if (r < r1) r1 = r;
+    if (c < c1) c1 = c;
+    if (r > r2) r2 = r;
+    if (c > c2) c2 = c;
+  }
+  return { r1, c1, r2, c2 };
+}
+
 function makeGridConfig(width: number, height: number): GridConfig {
   return {
     groupSize: 5,
@@ -300,6 +327,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   customColorGroups: JSON.parse(localStorage.getItem("pindou_custom_groups") || "[]"),
+
+  selection: null,
+  selectionBounds: null,
+  clipboard: null,
+  floatingSelection: null,
 
   newCanvas: (width, height) => {
     const layer = createDefaultLayer(width, height);
@@ -596,6 +628,147 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }
     return lost;
+  },
+
+  setSelection: (cells) => {
+    if (cells.size === 0) {
+      set({ selection: null, selectionBounds: null });
+      return;
+    }
+    set({ selection: cells, selectionBounds: computeBounds(cells) });
+  },
+
+  clearSelection: () => {
+    const state = get();
+    if (state.floatingSelection) {
+      get().commitFloatingSelection();
+    }
+    set({ selection: null, selectionBounds: null });
+  },
+
+  selectAll: () => {
+    const state = get();
+    const { width, height } = state.canvasSize;
+    const cells = new Set<string>();
+    for (let r = 0; r < height; r++) {
+      for (let c = 0; c < width; c++) {
+        cells.add(`${r},${c}`);
+      }
+    }
+    set({ selection: cells, selectionBounds: { r1: 0, c1: 0, r2: height - 1, c2: width - 1 } });
+  },
+
+  copySelection: () => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const { r1, c1, r2, c2 } = state.selectionBounds;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const cells = new Map<string, CanvasCell>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const cell = layerData[r]?.[c];
+      if (cell && cell.colorIndex !== null) {
+        cells.set(`${r - r1},${c - c1}`, { ...cell });
+      }
+    }
+    set({ clipboard: { cells, width: c2 - c1 + 1, height: r2 - r1 + 1 } });
+  },
+
+  cutSelection: () => {
+    const state = get();
+    if (!state.selection) return;
+    get().copySelection();
+    get().deleteSelection();
+  },
+
+  pasteClipboard: () => {
+    const state = get();
+    if (!state.clipboard) return;
+    if (state.floatingSelection) {
+      get().commitFloatingSelection();
+    }
+    const { width: cw, height: ch } = state.canvasSize;
+    const { width: pw, height: ph } = state.clipboard;
+    const offsetRow = Math.floor((ch - ph) / 2);
+    const offsetCol = Math.floor((cw - pw) / 2);
+    set({
+      floatingSelection: {
+        cells: new Map(state.clipboard.cells),
+        offsetRow,
+        offsetCol,
+      },
+    });
+  },
+
+  deleteSelection: () => {
+    const state = get();
+    if (!state.selection) return;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const entries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      entries.push({ row: r, col: c, colorIndex: null });
+    }
+    if (entries.length > 0) {
+      get().batchSetCells(entries);
+    }
+  },
+
+  commitFloatingSelection: () => {
+    const state = get();
+    if (!state.floatingSelection) return;
+    const { cells, offsetRow, offsetCol } = state.floatingSelection;
+    const { width, height } = state.canvasSize;
+    const entries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const [key, cell] of cells) {
+      const [lr, lc] = key.split(",").map(Number);
+      const r = lr + offsetRow;
+      const c = lc + offsetCol;
+      if (r >= 0 && r < height && c >= 0 && c < width && cell.colorIndex !== null) {
+        entries.push({ row: r, col: c, colorIndex: cell.colorIndex });
+      }
+    }
+    if (entries.length > 0) {
+      get().batchSetCells(entries);
+    }
+    set({ floatingSelection: null, selection: null, selectionBounds: null });
+  },
+
+  moveSelectionCells: (dRow, dCol) => {
+    const state = get();
+    if (!state.selection || !state.selectionBounds) return;
+    const { r1, c1 } = state.selectionBounds;
+    const layerIdx = state.layers.findIndex((l) => l.id === state.activeLayerId);
+    if (layerIdx === -1) return;
+    const layerData = state.layers[layerIdx].data;
+    const floatingCells = new Map<string, CanvasCell>();
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      const cell = layerData[r]?.[c];
+      if (cell && cell.colorIndex !== null) {
+        floatingCells.set(`${r - r1},${c - c1}`, { ...cell });
+      }
+    }
+    const clearEntries: { row: number; col: number; colorIndex: number | null }[] = [];
+    for (const key of state.selection) {
+      const [r, c] = key.split(",").map(Number);
+      clearEntries.push({ row: r, col: c, colorIndex: null });
+    }
+    if (clearEntries.length > 0) {
+      get().batchSetCells(clearEntries);
+    }
+    set({
+      floatingSelection: {
+        cells: floatingCells,
+        offsetRow: r1 + dRow,
+        offsetCol: c1 + dCol,
+      },
+      selection: null,
+      selectionBounds: null,
+    });
   },
 
   placeImageOnCanvas: (imageData, imageW, imageH, canvasW, canvasH, startRow, startCol) => {
