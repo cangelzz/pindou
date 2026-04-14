@@ -5,19 +5,23 @@ import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type Devic
 
 const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
   { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
+  { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
+  { id: "eraser", label: "橡皮擦", icon: "⌫", shortcut: "E" },
+  { id: "eyedropper", label: "取色", icon: "💧", shortcut: "I" },
+  { id: "pan", label: "平移", icon: "✋", shortcut: "Space" },
+];
+
+const shapeTools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
   { id: "line", label: "直线", icon: "╱", shortcut: "L" },
   { id: "rect", label: "矩形", icon: "▭", shortcut: "R" },
   { id: "circle", label: "圆形", icon: "◯", shortcut: "C" },
-  { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
-  { id: "eraser", label: "橡皮", icon: "🧹", shortcut: "E" },
-  { id: "eyedropper", label: "取色", icon: "💧", shortcut: "I" },
-  { id: "pan", label: "平移", icon: "✋", shortcut: "Space" },
 ];
 
 export function CanvasToolbar() {
   const currentTool = useEditorStore((s) => s.currentTool);
   const setTool = useEditorStore((s) => s.setTool);
 
+  const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showTokenDialog, setShowTokenDialog] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState<DeviceCodeInfo | null>(null);
   const [authStatus, setAuthStatus] = useState("");
@@ -56,6 +60,37 @@ export function CanvasToolbar() {
           {t.icon}
         </button>
       ))}
+
+      {/* Shape tools flyout */}
+      <div className="relative">
+        <button
+          onClick={() => setShowShapeMenu(!showShapeMenu)}
+          className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
+            ${shapeTools.some((t) => t.id === currentTool) ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title="形状工具"
+        >
+          {shapeTools.find((t) => t.id === currentTool)?.icon || "△"}
+        </button>
+        {showShapeMenu && (
+          <div className="absolute left-full top-0 ml-1 bg-white border rounded shadow-lg flex flex-col gap-0.5 p-1 z-50">
+            {shapeTools.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setTool(t.id);
+                  setShowShapeMenu(false);
+                }}
+                className={`w-20 h-8 rounded flex items-center gap-1.5 px-2 text-xs transition-colors
+                  ${currentTool === t.id ? "bg-blue-500 text-white" : "hover:bg-gray-100"}`}
+                title={`${t.label} (${t.shortcut})`}
+              >
+                <span className="text-sm">{t.icon}</span>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="border-t my-1 w-full" />
 
