@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Add canvas resize feature ("调整画布") with anchor selector and crop warning
+- Fix .pindou files opening empty (missing Tailwind CSS in webview build)
+
 ## 0.1.0
 
 - Initial release
