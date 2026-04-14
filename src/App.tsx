@@ -37,6 +37,11 @@ function App() {
   const [showImport, setShowImport] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showNewCanvas, setShowNewCanvas] = useState(false);
+  const [showResize, setShowResize] = useState(false);
+  const [resizeW, setResizeW] = useState(52);
+  const [resizeH, setResizeH] = useState(52);
+  const [resizeAnchorRow, setResizeAnchorRow] = useState(0);
+  const [resizeAnchorCol, setResizeAnchorCol] = useState(0);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [blueprintImporting, setBlueprintImporting] = useState(false);
@@ -60,6 +65,8 @@ function App() {
   const openProject = useEditorStore((s) => s.openProject);
   const autoSave = useEditorStore((s) => s.autoSave);
   const canvasSize = useEditorStore((s) => s.canvasSize);
+  const resizeCanvas = useEditorStore((s) => s.resizeCanvas);
+  const countLostPixels = useEditorStore((s) => s.countLostPixels);
   const zoom = useEditorStore((s) => s.zoom);
   const refImagePixels = useEditorStore((s) => s.refImagePixels);
   const refImageVisible = useEditorStore((s) => s.refImageVisible);
@@ -153,6 +160,18 @@ function App() {
           className="px-2 py-1 rounded hover:bg-gray-200"
         >
           新建
+        </button>
+        <button
+          onClick={() => {
+            setResizeW(canvasSize.width);
+            setResizeH(canvasSize.height);
+            setResizeAnchorRow(0);
+            setResizeAnchorCol(0);
+            setShowResize(true);
+          }}
+          className="px-2 py-1 rounded hover:bg-gray-200"
+        >
+          调整画布
         </button>
         <button
           onClick={() => openProject()}
@@ -623,6 +642,109 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Resize Canvas Dialog */}
+      {showResize && (() => {
+        const lostPixels = (resizeW !== canvasSize.width || resizeH !== canvasSize.height)
+          ? countLostPixels(resizeW, resizeH, resizeAnchorRow, resizeAnchorCol)
+          : 0;
+        const dw = resizeW - canvasSize.width;
+        const dh = resizeH - canvasSize.height;
+        const isSameSize = dw === 0 && dh === 0;
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-[340px] p-4">
+              <h2 className="font-semibold text-sm mb-3">调整画布</h2>
+              <div className="flex flex-col gap-3">
+                {/* Size inputs */}
+                <div className="flex gap-2 items-center text-xs">
+                  <span>宽</span>
+                  <input
+                    type="number"
+                    min={4}
+                    max={256}
+                    value={resizeW}
+                    onChange={(e) => setResizeW(Math.max(4, Math.min(256, Number(e.target.value))))}
+                    className="w-16 px-2 py-1 border rounded"
+                  />
+                  <span>高</span>
+                  <input
+                    type="number"
+                    min={4}
+                    max={256}
+                    value={resizeH}
+                    onChange={(e) => setResizeH(Math.max(4, Math.min(256, Number(e.target.value))))}
+                    className="w-16 px-2 py-1 border rounded"
+                  />
+                </div>
+
+                {/* Preview */}
+                <div className="text-xs text-gray-500">
+                  {canvasSize.width}×{canvasSize.height} → {resizeW}×{resizeH}
+                  {!isSameSize && (
+                    <span className="ml-1">
+                      ({dw >= 0 ? "+" : ""}{dw} 宽, {dh >= 0 ? "+" : ""}{dh} 高)
+                    </span>
+                  )}
+                </div>
+
+                {/* Anchor selector */}
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">锚点（内容保留位置）</div>
+                  <div className="inline-grid grid-cols-3 gap-1">
+                    {[0, 1, 2].map((row) =>
+                      [0, 1, 2].map((col) => (
+                        <button
+                          key={`${row}-${col}`}
+                          onClick={() => { setResizeAnchorRow(row); setResizeAnchorCol(col); }}
+                          className={`w-6 h-6 rounded border text-xs flex items-center justify-center ${
+                            resizeAnchorRow === row && resizeAnchorCol === col
+                              ? "bg-blue-500 text-white border-blue-600"
+                              : "bg-gray-100 hover:bg-gray-200 border-gray-300"
+                          }`}
+                        >
+                          {resizeAnchorRow === row && resizeAnchorCol === col ? "●" : "○"}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Warning for pixel loss */}
+                {lostPixels > 0 && (
+                  <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1">
+                    ⚠ 将裁剪 {lostPixels} 个非空像素
+                  </div>
+                )}
+
+                {/* Buttons */}
+                <div className="flex gap-2 mt-1">
+                  <button
+                    onClick={() => {
+                      resizeCanvas(resizeW, resizeH, resizeAnchorRow, resizeAnchorCol);
+                      setShowResize(false);
+                    }}
+                    disabled={isSameSize}
+                    className={`px-3 py-1.5 text-xs rounded ${
+                      isSameSize
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : "bg-blue-500 text-white hover:bg-blue-600"
+                    }`}
+                  >
+                    应用
+                  </button>
+                  <button
+                    onClick={() => setShowResize(false)}
+                    className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Snapshot Dialog */}
       {showSnapshots && (
