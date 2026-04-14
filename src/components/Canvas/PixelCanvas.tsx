@@ -746,6 +746,10 @@ export function PixelCanvas() {
           shapeStart.current = cell;
           setShapePreview([]);
         } else {
+          // Start stroke batching for pen/eraser
+          if (currentTool === "pen" || currentTool === "eraser") {
+            useEditorStore.getState().beginStroke();
+          }
           isDragging.current = true;
           applyTool(cell.row, cell.col);
         }
@@ -840,6 +844,8 @@ export function PixelCanvas() {
       setShapePreview(null);
       isDragging.current = false;
       isPanning.current = false;
+      // End stroke batching for pen/eraser
+      useEditorStore.getState().endStroke();
     },
     [isShapeTool, shapePreview, canvasSize, selectedColorIndex, currentTool, screenToCell, moveSelectionCells]
   );
@@ -882,22 +888,23 @@ export function PixelCanvas() {
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === "z") {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key === "z" && !e.shiftKey && !e.repeat) {
         e.preventDefault();
         useEditorStore.getState().undo();
-      } else if (e.ctrlKey && e.key === "y") {
+      } else if ((mod && e.key === "y" && !e.repeat) || (mod && e.key === "z" && e.shiftKey && !e.repeat)) {
         e.preventDefault();
         useEditorStore.getState().redo();
-      } else if (e.ctrlKey && e.key === "c") {
+      } else if (mod && e.key === "c") {
         e.preventDefault();
         useEditorStore.getState().copySelection();
-      } else if (e.ctrlKey && e.key === "x") {
+      } else if (mod && e.key === "x") {
         e.preventDefault();
         useEditorStore.getState().cutSelection();
-      } else if (e.ctrlKey && e.key === "v") {
+      } else if (mod && e.key === "v") {
         e.preventDefault();
         useEditorStore.getState().pasteClipboard();
-      } else if (e.ctrlKey && e.key === "a") {
+      } else if (mod && e.key === "a") {
         e.preventDefault();
         useEditorStore.getState().selectAll();
       } else if (e.key === "Delete" || e.key === "Backspace") {

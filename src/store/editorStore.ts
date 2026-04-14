@@ -109,6 +109,8 @@ interface EditorState {
   setGridGroupLineWidth: (width: number) => void;
   undo: () => void;
   redo: () => void;
+  beginStroke: () => void;
+  endStroke: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
   resizeCanvas: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => void;
   countLostPixels: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => number;
@@ -263,6 +265,8 @@ function makeGridConfig(width: number, height: number): GridConfig {
 const DEFAULT_GRID_CONFIG: GridConfig = makeGridConfig(52, 52);
 
 const MAX_HISTORY = 200;
+
+let _strokeStartIdx = -1;
 
 function buildProjectFile(state: EditorState): ProjectFile {
   const now = new Date().toISOString();
@@ -568,6 +572,39 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       redoStack: state.redoStack.slice(0, -1),
       isDirty: true,
     });
+  },
+
+  beginStroke: () => {
+    _strokeStartIdx = get().undoStack.length;
+  },
+
+  endStroke: () => {
+    if (_strokeStartIdx < 0) return;
+    const state = get();
+    const stack = state.undoStack;
+    if (stack.length <= _strokeStartIdx) {
+      _strokeStartIdx = -1;
+      return;
+    }
+    // Merge all actions since stroke start into one
+    const merged: HistoryAction = [];
+    for (let i = _strokeStartIdx; i < stack.length; i++) {
+      merged.push(...stack[i]);
+    }
+    // Deduplicate: keep first prev and last new for each cell
+    const cellMap = new Map<string, { row: number; col: number; prevColorIndex: number | null; newColorIndex: number | null }>();
+    for (const entry of merged) {
+      const key = `${entry.row},${entry.col}`;
+      if (!cellMap.has(key)) {
+        cellMap.set(key, { ...entry });
+      } else {
+        cellMap.get(key)!.newColorIndex = entry.newColorIndex;
+      }
+    }
+    const combinedAction: HistoryAction = Array.from(cellMap.values());
+    const newStack = [...stack.slice(0, _strokeStartIdx), combinedAction];
+    set({ undoStack: newStack });
+    _strokeStartIdx = -1;
   },
 
   loadCanvasData: (data, size) => {
