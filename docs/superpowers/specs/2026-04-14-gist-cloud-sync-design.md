@@ -73,7 +73,47 @@ All Gists are created as **secret** (not public) by default.
 
 ## Store Additions
 
-No new Zustand state needed — the dialog manages its own React state (loading, project list, selected project). This keeps the feature isolated.
+Track cloud sync origin so the app knows when local state has diverged from cloud:
+
+```typescript
+cloudGistId: string | null          // Gist ID of the currently loaded project (null if local-only)
+cloudUpdatedAt: string | null       // updatedAt timestamp from when project was last downloaded/uploaded
+```
+
+These are set when downloading or uploading a project. When the user edits locally, `isDirty` becomes true while `cloudUpdatedAt` stays the same — this mismatch drives the sync status indicator.
+
+## Sync Status Indicator
+
+A small status badge next to the "云端" button in the top menu bar, visible when the current project is linked to a Gist (`cloudGistId` is set):
+
+| State | Indicator | Meaning |
+|-------|-----------|---------|
+| Synced | `☁️ ✓` (green) | Local matches cloud (not dirty since last upload/download) |
+| Local changes | `☁️ ●` (orange) | Local edits not yet pushed (`isDirty` or edited since last sync) |
+| Not linked | (none) | Project is local-only, no Gist association |
+
+## Upload Overwrite Confirmation
+
+When uploading to an existing Gist, the cloud version may have been updated from another device. Before overwriting:
+
+1. Fetch the latest Gist `updatedAt` timestamp
+2. If cloud `updatedAt` > local `cloudUpdatedAt` (cloud is newer than what we last downloaded), show a confirmation dialog:
+   - **"云端版本已更新"** — "Cloud version has been updated since you last synced."
+   - **Compare preview** — Side-by-side thumbnail rendering of local canvas vs cloud canvas. Uses the existing `PreviewThumbnail` pattern (render canvas to a small preview). Local on left, cloud on right, with timestamps.
+   - **Three options:**
+     - "覆盖云端" (Overwrite cloud) — Push local to Gist
+     - "下载云端" (Download cloud) — Replace local with cloud version
+     - "取消" (Cancel) — Do nothing
+3. If cloud is NOT newer (or Gist is new), upload directly without confirmation.
+
+## Compare Preview
+
+The compare dialog renders two small canvas previews side-by-side:
+
+- **Left: 本地版本** — Current local canvas state (from store)
+- **Right: 云端版本** — Fetched from Gist (downloaded temporarily for preview)
+- Each preview shows the full canvas scaled to fit ~200×200px, with the project name and last-modified timestamp below
+- Uses a dedicated canvas element with `renderPixels` to draw the preview (same as `PreviewThumbnail` component)
 
 ## Visibility
 
@@ -94,8 +134,11 @@ No new Zustand state needed — the dialog manages its own React state (loading,
 - Login with GitHub → "云端" button appears
 - Upload project → Gist created with `pindouverse__name.pindou` filename
 - List projects → shows only PindouVerse gists
-- Download project → loads into canvas
+- Download project → loads into canvas, sync status shows ✓
+- Edit locally → sync status changes to ● (orange)
+- Upload → sync status returns to ✓
+- Upload when cloud is newer → compare preview shows, user chooses
 - Delete project → Gist removed
 - Version history → shows revisions, can restore
 - Not logged in → "云端" button hidden
-- Token without `gist` scope → re-auth prompted
+- Token without `gist` scope ��� re-auth prompted
