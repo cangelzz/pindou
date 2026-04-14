@@ -20,3 +20,14 @@ Commands:
 - After bumping: `git push --tags`
 
 Release: GitHub Actions → Release → Run workflow (version auto-computed).
+
+## Git Workflow
+
+**NEVER commit directly to main.** Always:
+
+1. Create a feature/fix branch: `git checkout -b fix/description` or `feature/description`
+2. Make as many commits as needed on the branch during development
+3. When done, squash merge to main: `git checkout main && git merge --squash branch-name && git commit -m "concise summary"`
+4. Delete the branch: `git branch -d branch-name`
+
+This keeps main history clean with one commit per feature/fix.
