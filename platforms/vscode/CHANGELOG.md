@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- GitHub cloud sync via Gist (upload, download, delete, version history)
+- VS Code native GitHub authentication (account picker)
+- Sync status indicator (☁️✓ synced / ☁️● local changes)
+- Conflict detection with side-by-side compare preview
+- Selection tools (rectangle select, magic wand)
+- Cut/Copy/Paste/Delete selection (Ctrl+C/X/V, Delete)
+- Canvas resize with anchor selector
+- History dialog for undo/redo navigation
+- Undo stroke batching (one stroke = one undo step)
+- Mac keyboard support (Cmd+Z/Shift+Z)
+- Auto-fit canvas to window on load
+- Exit protection for unsaved changes
+- New Project opens blank canvas without save dialog
+- Open Project command for existing .pindou files
+
 ## 0.2.0
 
 - Add canvas resize feature ("调整画布") with anchor selector and crop warning
