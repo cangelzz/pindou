@@ -248,14 +248,17 @@ export function PixelCanvas() {
     const rc = refCanvasRef.current;
     const gc = gridCanvasRef.current;
     const ac = axisCanvasRef.current;
-    const selc = selectionCanvasRef.current;
-    if (!container || !pc || !rc || !gc || !ac || !selc) return;
+    if (!container || !pc || !rc || !gc || !ac) return;
 
     const w = container.clientWidth;
     const h = container.clientHeight;
     const dpr = window.devicePixelRatio || 1;
 
-    for (const c of [pc, rc, gc, ac, selc]) {
+    const canvases = [pc, rc, gc, ac];
+    const selc = selectionCanvasRef.current;
+    if (selc) canvases.push(selc);
+
+    for (const c of canvases) {
       c.width = w * dpr;
       c.height = h * dpr;
       c.style.width = `${w}px`;
@@ -1078,6 +1081,7 @@ export function PixelCanvas() {
         />
         <canvas ref={gridCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={shapeCanvasRef} className="absolute inset-0 pointer-events-none" />
+        <canvas ref={selectionCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={axisCanvasRef} className="absolute inset-0 pointer-events-none" />
         {showThumbnail && containerDims.w > 0 && (
           <PreviewThumbnail
