@@ -7,14 +7,12 @@ export function activate(context: vscode.ExtensionContext) {
     PindouEditorProvider.register(context)
   );
 
-  // Command: new project
+  // Command: new project (opens blank canvas immediately, no save dialog)
   context.subscriptions.push(
     vscode.commands.registerCommand("pindouverse.newProject", async () => {
-      const uri = await vscode.window.showSaveDialog({
-        filters: { "PindouVerse Project": ["pindou"] },
-        saveLabel: "Create",
-      });
-      if (!uri) return;
+      const tmpDir = context.globalStorageUri;
+      await vscode.workspace.fs.createDirectory(tmpDir);
+      const tmpUri = vscode.Uri.joinPath(tmpDir, `untitled_${Date.now()}.pindou`);
 
       const emptyProject = {
         version: 1,
@@ -27,10 +25,22 @@ export function activate(context: vscode.ExtensionContext) {
       };
 
       await vscode.workspace.fs.writeFile(
-        uri,
+        tmpUri,
         Buffer.from(JSON.stringify(emptyProject, null, 2))
       );
-      await vscode.commands.executeCommand("vscode.openWith", uri, "pindouverse.editor");
+      await vscode.commands.executeCommand("vscode.openWith", tmpUri, "pindouverse.editor");
+    })
+  );
+
+  // Command: open existing .pindou file
+  context.subscriptions.push(
+    vscode.commands.registerCommand("pindouverse.openProject", async () => {
+      const uris = await vscode.window.showOpenDialog({
+        filters: { "PindouVerse Project": ["pindou"] },
+        canSelectMany: false,
+      });
+      if (!uris || uris.length === 0) return;
+      await vscode.commands.executeCommand("vscode.openWith", uris[0], "pindouverse.editor");
     })
   );
 }
@@ -202,6 +212,42 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
         case "error":
           vscode.window.showErrorMessage(msg.message);
           break;
+
+        case "getGitHubToken": {
+          try {
+            // Use VS Code's built-in GitHub authentication
+            // createIfNone: true prompts user to sign in if not already
+            const session = await vscode.authentication.getSession(
+              "github",
+              ["gist"],
+              { createIfNone: msg.createIfNone ?? false },
+            );
+            webviewPanel.webview.postMessage({
+              type: "githubToken",
+              requestId: msg.requestId,
+              token: session?.accessToken || null,
+              account: session ? { label: session.account.label, id: session.account.id } : null,
+            });
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({
+              type: "githubToken",
+              requestId: msg.requestId,
+              token: null,
+              account: null,
+              error: e.message,
+            });
+          }
+          break;
+        }
+
+        case "clearGitHubToken": {
+          // VS Code doesn't have a direct "logout" — we just tell the webview to clear
+          webviewPanel.webview.postMessage({
+            type: "githubTokenCleared",
+            requestId: msg.requestId,
+          });
+          break;
+        }
       }
     });
 
@@ -223,7 +269,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource}; connect-src https://api.github.com;">
   <link rel="stylesheet" href="${styleUri}">
   <title>PindouVerse</title>
   <style>html,body{height:100%;margin:0;padding:0;overflow:hidden}#root{height:100%;overflow:hidden}#root>div{height:100%!important;max-height:100%!important}</style>
