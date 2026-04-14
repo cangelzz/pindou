@@ -109,8 +109,9 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
       const result = await uploadProject(token, name, project, gistId);
       setCloudSync(result.gistId, result.updatedAt, name);
       useEditorStore.setState({ isDirty: false });
-      await refresh();
       setShowUploadInput(false);
+      // Force re-fetch the full list from GitHub
+      setProjects(null);
     } catch (e: any) {
       setError(e.message || "Upload failed");
     } finally {
@@ -151,7 +152,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
       if (cloudGistId === gistId) {
         setCloudSync(null, null, null);
       }
-      await refresh();
+      setProjects(null);
     } catch (e: any) {
       setError(e.message || "Delete failed");
     } finally {
