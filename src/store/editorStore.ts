@@ -104,6 +104,8 @@ interface EditorState {
   undo: () => void;
   redo: () => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
+  resizeCanvas: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => void;
+  countLostPixels: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => number;
   placeImageOnCanvas: (
     imageData: CanvasData,
     imageW: number,
@@ -185,6 +187,28 @@ function mergeLayers(layers: BeadLayer[], width: number, height: number): Canvas
     }
   }
   return merged;
+}
+
+/** Resize a single layer's data to new dimensions, placing content at anchor offset */
+function resizeLayerData(
+  data: CanvasData,
+  oldW: number, oldH: number,
+  newW: number, newH: number,
+  anchorRow: number, anchorCol: number,
+): CanvasData {
+  const offsetCol = Math.floor(anchorCol * (newW - oldW) / 2);
+  const offsetRow = Math.floor(anchorRow * (newH - oldH) / 2);
+  const result = createEmptyCanvas(newW, newH);
+  for (let r = 0; r < oldH; r++) {
+    for (let c = 0; c < oldW; c++) {
+      const nr = r + offsetRow;
+      const nc = c + offsetCol;
+      if (nr >= 0 && nr < newH && nc >= 0 && nc < newW) {
+        result[nr][nc] = data[r][c];
+      }
+    }
+  }
+  return result;
 }
 
 /** Compute default edge padding for a canvas size */
@@ -527,6 +551,51 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       redoStack: [],
       isDirty: false,
     });
+  },
+
+  resizeCanvas: (newWidth, newHeight, anchorRow, anchorCol) => {
+    const state = get();
+    const { width: oldW, height: oldH } = state.canvasSize;
+    if (newWidth === oldW && newHeight === oldH) return;
+
+    const newLayers = state.layers.map((layer) => ({
+      ...layer,
+      data: resizeLayerData(layer.data, oldW, oldH, newWidth, newHeight, anchorRow, anchorCol),
+    }));
+
+    set({
+      canvasSize: { width: newWidth, height: newHeight },
+      canvasData: mergeLayers(newLayers, newWidth, newHeight),
+      gridConfig: makeGridConfig(newWidth, newHeight),
+      layers: newLayers,
+      undoStack: [],
+      redoStack: [],
+      isDirty: true,
+      offsetX: 0,
+      offsetY: 0,
+    });
+  },
+
+  countLostPixels: (newWidth, newHeight, anchorRow, anchorCol) => {
+    const state = get();
+    const { width: oldW, height: oldH } = state.canvasSize;
+    const offsetCol = Math.floor(anchorCol * (newWidth - oldW) / 2);
+    const offsetRow = Math.floor(anchorRow * (newHeight - oldH) / 2);
+    let lost = 0;
+    for (const layer of state.layers) {
+      if (!layer.visible) continue;
+      for (let r = 0; r < oldH; r++) {
+        for (let c = 0; c < oldW; c++) {
+          if (layer.data[r][c].colorIndex === null) continue;
+          const nr = r + offsetRow;
+          const nc = c + offsetCol;
+          if (nr < 0 || nr >= newHeight || nc < 0 || nc >= newWidth) {
+            lost++;
+          }
+        }
+      }
+    }
+    return lost;
   },
 
   placeImageOnCanvas: (imageData, imageW, imageH, canvasW, canvasH, startRow, startCol) => {
