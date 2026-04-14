@@ -2,6 +2,9 @@
 src/**
 webview/**
 node_modules/**
+tests/**
+test-results/**
 tsconfig.json
+playwright.config.ts
 *.ts
 !dist/**
