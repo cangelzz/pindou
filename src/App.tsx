@@ -163,7 +163,7 @@ function App() {
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
       const win = getCurrentWindow();
       win.onCloseRequested(async (event) => {
-        if (!useEditorStore.getState().isDirty) return; // close normally
+        if (!useEditorStore.getState().isDirty) return;
         event.preventDefault();
         const { ask } = await import("@tauri-apps/plugin-dialog");
         const shouldExit = await ask("有未保存的修改，确定要退出吗？", {
@@ -171,14 +171,13 @@ function App() {
           kind: "warning",
         });
         if (shouldExit) {
-          // Unlisten first so close() doesn't trigger this handler again
           unlisten?.();
           unlisten = null;
-          win.close();
+          await win.close();
         }
       }).then((fn) => { unlisten = fn; });
     }).catch(() => {
-      // Not in Tauri environment — beforeunload handles it
+      // Not in Tauri environment
     });
 
     return () => {
