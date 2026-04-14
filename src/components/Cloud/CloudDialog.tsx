@@ -318,7 +318,7 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
               />
               <button
                 onClick={() => {
-                  const name = uploadName.trim();
+                  let name = uploadName.trim().replace(/\.pindou$/i, "");
                   if (!name) return;
                   const existing = projects?.find((p) => p.name === name);
                   handleUpload(name, existing?.gistId);
@@ -356,6 +356,16 @@ export function CloudDialog({ onClose }: CloudDialogProps) {
                 className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 disabled:opacity-50"
               >
                 {cloudGistId ? "同步到云端" : "上传当前项目"}
+              </button>
+              <button
+                onClick={() => {
+                  setUploadName(derivedName);
+                  setShowUploadInput(true);
+                }}
+                disabled={loading}
+                className="px-3 py-1.5 text-xs border rounded hover:bg-gray-100 disabled:opacity-50"
+              >
+                另存为...
               </button>
               <button
                 onClick={refresh}
