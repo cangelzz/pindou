@@ -721,8 +721,8 @@ export function PixelCanvas() {
           if (floatingSelectionState) {
             commitFloatingSelection();
           }
+          clearSelection();
           selectionStart.current = { row, col };
-          setSelection(new Set([`${row},${col}`]));
           return;
         }
 
@@ -773,7 +773,7 @@ export function PixelCanvas() {
         }
       }
     },
-    [currentTool, offsetX, offsetY, screenToCell, applyTool, isShapeTool, selection, floatingSelectionState, commitFloatingSelection, setSelection]
+    [currentTool, offsetX, offsetY, screenToCell, applyTool, isShapeTool, selection, floatingSelectionState, commitFloatingSelection, setSelection, clearSelection]
   );
 
   const handleMouseMove = useCallback(
