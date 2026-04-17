@@ -62,7 +62,9 @@
     "watch": "concurrently \"npm run watch:ext\" \"npm run watch:webview\"",
     "watch:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
     "watch:webview": "vite build --config webview/vite.config.ts --watch",
-    "package": "vsce package"
+    "package": "vsce package",
+    "publish:pat": "npm run build && npm run package && vsce publish",
+    "publish:entra": "npm run build && npm run package && node scripts/publish-entra.js"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "latest",
