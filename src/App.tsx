@@ -147,6 +147,29 @@ function App() {
     return () => clearInterval(id);
   }, [autoSaveEnabled]);
 
+  // Update window title with project name/path
+  useEffect(() => {
+    const base = "拼豆宇宙 PindouVerse";
+    if (!projectPath) {
+      document.title = base;
+      // Also reset Tauri window title
+      import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+        getCurrentWindow().setTitle(base).catch(() => {});
+      }).catch(() => {});
+      return;
+    }
+    const name = projectPath.replace(/\\/g, "/").split("/").pop() || projectPath;
+    // Show full path if it fits reasonably, otherwise just the filename
+    const fullTitle = `${projectPath} - ${base}`;
+    const shortTitle = `${name} - ${base}`;
+    const title = fullTitle.length <= 120 ? fullTitle : shortTitle;
+    document.title = title;
+    // Also set Tauri native window title
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      getCurrentWindow().setTitle(title).catch(() => {});
+    }).catch(() => {});
+  }, [projectPath]);
+
   // Warn before closing with unsaved changes
   useEffect(() => {
     // Browser/webview: beforeunload
