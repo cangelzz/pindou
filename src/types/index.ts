@@ -82,11 +82,19 @@ export interface BeadCount {
   count: number;
 }
 
+export interface ProjectInfo {
+  title?: string;
+  author?: string;
+  description?: string;
+  link?: string;
+}
+
 export interface ProjectFile {
   version: number;
   canvasSize: CanvasSize;
   canvasData: CanvasData;
   gridConfig?: GridConfig;
+  projectInfo?: ProjectInfo;
   createdAt: string;
   updatedAt: string;
 }

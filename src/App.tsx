@@ -7,6 +7,7 @@ import { ImageImportDialog } from "./components/Import/ImageImportDialog";
 import { BlueprintImportDialog } from "./components/Import/BlueprintImportDialog";
 import { ExportDialog } from "./components/Export/ExportDialog";
 import { CloudDialog } from "./components/Cloud/CloudDialog";
+import { ProjectInfoDialog } from "./components/ProjectInfo/ProjectInfoDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
@@ -41,6 +42,7 @@ function App() {
   const [showNewCanvas, setShowNewCanvas] = useState(false);
   const [showResize, setShowResize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showProjectInfo, setShowProjectInfo] = useState(false);
   const [showCloud, setShowCloud] = useState(false);
   const [resizeW, setResizeW] = useState(52);
   const [resizeH, setResizeH] = useState(52);
@@ -64,6 +66,7 @@ function App() {
   const isDirty = useEditorStore((s) => s.isDirty);
   const cloudGistId = useEditorStore((s) => s.cloudGistId);
   const projectPath = useEditorStore((s) => s.projectPath);
+  const projectInfo = useEditorStore((s) => s.projectInfo);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
@@ -150,25 +153,27 @@ function App() {
   // Update window title with project name/path
   useEffect(() => {
     const base = "拼豆宇宙 PindouVerse";
-    if (!projectPath) {
-      document.title = base;
-      // Also reset Tauri window title
-      import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-        getCurrentWindow().setTitle(base).catch(() => {});
-      }).catch(() => {});
-      return;
+    const infoTitle = projectInfo?.title;
+    const fileName = projectPath?.replace(/\\/g, "/").split("/").pop();
+
+    let title: string;
+    if (infoTitle && fileName) {
+      title = `${infoTitle} (${fileName}) - ${base}`;
+    } else if (infoTitle) {
+      title = `${infoTitle} - ${base}`;
+    } else if (projectPath) {
+      const fullTitle = `${projectPath} - ${base}`;
+      const shortTitle = `${fileName} - ${base}`;
+      title = fullTitle.length <= 120 ? fullTitle : shortTitle;
+    } else {
+      title = base;
     }
-    const name = projectPath.replace(/\\/g, "/").split("/").pop() || projectPath;
-    // Show full path if it fits reasonably, otherwise just the filename
-    const fullTitle = `${projectPath} - ${base}`;
-    const shortTitle = `${name} - ${base}`;
-    const title = fullTitle.length <= 120 ? fullTitle : shortTitle;
+
     document.title = title;
-    // Also set Tauri native window title
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
       getCurrentWindow().setTitle(title).catch(() => {});
     }).catch(() => {});
-  }, [projectPath]);
+  }, [projectPath, projectInfo?.title]);
 
   // Warn before closing with unsaved changes
   useEffect(() => {
@@ -285,6 +290,13 @@ function App() {
           title="Ctrl+Shift+S"
         >
           另存为
+        </button>
+        <button
+          onClick={() => setShowProjectInfo(true)}
+          className="px-2 py-1 rounded hover:bg-gray-200"
+          title="项目信息"
+        >
+          项目信息
         </button>
         <div className="border-l mx-1 h-4" />
         <button
@@ -702,6 +714,7 @@ function App() {
       {/* Dialogs */}
       {showImport && <ImageImportDialog onClose={() => setShowImport(false)} />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
+      {showProjectInfo && <ProjectInfoDialog onClose={() => setShowProjectInfo(false)} />}
 
       {/* Blueprint Import Progress Modal */}
       {blueprintImporting && (

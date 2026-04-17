@@ -11,10 +11,24 @@ pub struct ProjectFile {
     pub canvas_data: Vec<Vec<CellData>>,
     #[serde(rename = "gridConfig", skip_serializing_if = "Option::is_none", default)]
     pub grid_config: Option<GridConfig>,
+    #[serde(rename = "projectInfo", skip_serializing_if = "Option::is_none", default)]
+    pub project_info: Option<ProjectInfo>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ProjectInfo {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub link: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

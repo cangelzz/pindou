@@ -10,6 +10,7 @@ import type {
   GridConfig,
   HistoryAction,
   ProjectFile,
+  ProjectInfo,
 } from "../types";
 
 interface EditorState {
@@ -57,6 +58,7 @@ interface EditorState {
   projectPath: string | null;
   isDirty: boolean;
   importedFileName: string | null;
+  projectInfo: ProjectInfo | undefined;
 
   // Cloud sync
   cloudGistId: string | null;
@@ -142,6 +144,7 @@ interface EditorState {
   ) => void;
   setProjectPath: (path: string | null) => void;
   setImportedFileName: (name: string | null) => void;
+  setProjectInfo: (info: ProjectInfo) => void;
 
   // Save/Load
   saveProject: () => Promise<void>;
@@ -283,6 +286,7 @@ function buildProjectFile(state: EditorState): ProjectFile {
     canvasSize: state.canvasSize,
     canvasData: state.canvasData,
     gridConfig: state.gridConfig,
+    projectInfo: state.projectInfo,
     createdAt: state.lastSavedAt || now,
     updatedAt: now,
   };
@@ -327,6 +331,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   projectPath: null,
   isDirty: false,
   importedFileName: null,
+  projectInfo: undefined,
   cloudGistId: null,
   cloudUpdatedAt: null,
   cloudProjectName: null,
@@ -361,6 +366,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isDirty: false,
       offsetX: 0,
       offsetY: 0,
+      projectInfo: undefined,
       cloudGistId: null,
       cloudUpdatedAt: null,
       cloudProjectName: null,
@@ -889,6 +895,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setProjectPath: (path) => set({ projectPath: path }),
   setImportedFileName: (name: string | null) => set({ importedFileName: name }),
+  setProjectInfo: (info: ProjectInfo) => set({ projectInfo: info, isDirty: true }),
 
   saveProject: async () => {
     const adapter = getAdapter();
@@ -940,6 +947,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       layers: [layer],
       activeLayerId: layer.id,
       projectPath: selected as string,
+      projectInfo: project.projectInfo,
       undoStack: [],
       redoStack: [],
       isDirty: false,
