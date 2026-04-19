@@ -273,7 +273,16 @@ export function PixelCanvas() {
   useEffect(() => {
     resize();
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    const container = containerRef.current;
+    let observer: ResizeObserver | null = null;
+    if (container) {
+      observer = new ResizeObserver(() => resize());
+      observer.observe(container);
+    }
+    return () => {
+      window.removeEventListener("resize", resize);
+      observer?.disconnect();
+    };
   }, [resize]);
 
   // Auto-fit canvas to window on initial mount and when canvas size changes
