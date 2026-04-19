@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useEditorStore } from "../../store/editorStore";
-import { MARD_COLORS } from "../../data/mard221";
+import { getEffectiveHex } from "../../utils/colorHelper";
 
 interface PreviewThumbnailProps {
   containerWidth: number;
@@ -18,6 +18,7 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
   const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
   const setOffset = useEditorStore((s) => s.setOffset);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
   const [pos, setPos] = useState({ x: 10, y: 10 });
   const [isDragging, setIsDragging] = useState(false);
@@ -55,15 +56,13 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
             const sc = isMirror ? cols - 1 - c : c;
             const cell = layer.data[r]?.[sc];
             if (cell?.colorIndex != null) {
-              const color = MARD_COLORS[cell.colorIndex];
-              if (color) {
-                ctx.fillStyle = color.hex;
-                const px = Math.floor(c * sx);
-                const py = Math.floor(r * sy);
-                const pw = Math.ceil((c + 1) * sx) - px;
-                const ph = Math.ceil((r + 1) * sy) - py;
-                ctx.fillRect(px, py, pw, ph);
-              }
+              const hex = getEffectiveHex(cell.colorIndex, colorOverrides);
+              ctx.fillStyle = hex;
+              const px = Math.floor(c * sx);
+              const py = Math.floor(r * sy);
+              const pw = Math.ceil((c + 1) * sx) - px;
+              const ph = Math.ceil((r + 1) * sy) - py;
+              ctx.fillRect(px, py, pw, ph);
             }
           }
         }
@@ -95,13 +94,13 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
           const sc = isMirror ? cols - 1 - c : c;
           const cell = canvasData[r]?.[sc];
           if (cell?.colorIndex != null) {
-            ctx.fillStyle = MARD_COLORS[cell.colorIndex]?.hex ?? "#000";
+            ctx.fillStyle = getEffectiveHex(cell.colorIndex, colorOverrides);
             ctx.fillRect(tx, ty, 1, 1);
           }
         }
       }
     }
-  }, [layers, canvasData, cols, rows, offsetX, offsetY, cellSize, containerWidth, containerHeight, thumbW, thumbH, sx, sy, showFull, isMirror]);
+  }, [layers, canvasData, cols, rows, offsetX, offsetY, cellSize, containerWidth, containerHeight, thumbW, thumbH, sx, sy, showFull, isMirror, colorOverrides]);
 
   const handleThumbClick = useCallback(
     (e: React.MouseEvent) => {

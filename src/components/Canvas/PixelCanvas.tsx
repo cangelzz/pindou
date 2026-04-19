@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
+import { getEffectiveColor, getEffectiveHex } from "../../utils/colorHelper";
 import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl";
 import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../../utils/audioFeedback";
 import { PreviewThumbnail } from "./PreviewThumbnail";
@@ -44,6 +45,7 @@ export function PixelCanvas() {
   const blueprintMode = useEditorStore((s) => s.blueprintMode);
   const blueprintMirror = useEditorStore((s) => s.blueprintMirror);
   const gridFocusMode = useEditorStore((s) => s.gridFocusMode);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
   const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
   const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
@@ -317,6 +319,7 @@ export function PixelCanvas() {
         highlightColorIndex,
         blueprintMode: false, // text rendered separately below
         mirror: isMirror,
+        colorOverrides,
       });
     }
     ctx.globalAlpha = 1;
@@ -334,9 +337,10 @@ export function PixelCanvas() {
         blueprintMode: true,
         textOnly: true,
         mirror: isMirror,
+        colorOverrides,
       });
     }
-  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode, isMirror, resizeCount]);
+  }, [layers, canvasData, cellSize, offsetX, offsetY, highlightColorIndex, blueprintMode, isMirror, resizeCount, colorOverrides]);
 
   // Render reference image layer
   useEffect(() => {
@@ -409,7 +413,7 @@ export function PixelCanvas() {
         for (let c = startC; c < startC + groupSize && c < canvasSize.width; c++) {
           const cell = canvasData[r]?.[c];
           if (cell?.colorIndex !== null && cell?.colorIndex !== undefined) {
-            const hex = MARD_COLORS[cell.colorIndex]?.hex;
+            const hex = getEffectiveHex(cell.colorIndex, colorOverrides);
             if (hex) {
               rSum += parseInt(hex.slice(1, 3), 16);
               gSum += parseInt(hex.slice(3, 5), 16);
@@ -470,6 +474,7 @@ export function PixelCanvas() {
         floatingSelectionState.offsetRow,
         floatingSelectionState.offsetCol,
         cellSize, offsetX, offsetY,
+        colorOverrides,
       );
     }
 
@@ -496,7 +501,7 @@ export function PixelCanvas() {
     if (!shapePreview || shapePreview.length === 0) return;
 
     // Get selected color for preview
-    const color = selectedColorIndex !== null ? MARD_COLORS[selectedColorIndex] : null;
+    const color = selectedColorIndex !== null ? getEffectiveColor(selectedColorIndex, colorOverrides) : null;
     if (color?.rgb) {
       ctx.fillStyle = `rgba(${color.rgb[0]},${color.rgb[1]},${color.rgb[2]},0.5)`;
     } else {
@@ -1041,7 +1046,7 @@ export function PixelCanvas() {
             当前色:
             <span
               className="inline-block w-3 h-3 border border-gray-400 rounded-sm"
-              style={{ backgroundColor: MARD_COLORS[selectedColorIndex]?.hex }}
+              style={{ backgroundColor: getEffectiveHex(selectedColorIndex, colorOverrides) }}
             />
             {MARD_COLORS[selectedColorIndex]?.code}
           </span>

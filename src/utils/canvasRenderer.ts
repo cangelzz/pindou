@@ -1,4 +1,4 @@
-import { MARD_COLORS } from "../data/mard221";
+import { getEffectiveColor, type ColorOverrideMap } from "./colorHelper";
 import type { CanvasData, GridConfig } from "../types";
 
 export interface RenderOptions {
@@ -10,8 +10,9 @@ export interface RenderOptions {
   viewHeight: number;
   highlightColorIndex?: number | null;
   blueprintMode?: boolean;
-  textOnly?: boolean; // only draw blueprint text, skip fill
-  mirror?: boolean; // horizontal flip (left-right)
+  textOnly?: boolean;
+  mirror?: boolean;
+  colorOverrides?: ColorOverrideMap;
 }
 
 /** Compute contrasting text color */
@@ -30,7 +31,8 @@ export function renderPixels(
   ctx: CanvasRenderingContext2D,
   opts: RenderOptions
 ): void {
-  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode, textOnly, mirror } = opts;
+  const { canvasData, cellSize, offsetX, offsetY, viewWidth, viewHeight, highlightColorIndex, blueprintMode, textOnly, mirror, colorOverrides } = opts;
+  const overrides = colorOverrides || new Map();
   const rows = canvasData.length;
   const cols = rows > 0 ? canvasData[0].length : 0;
   const hasHighlight = highlightColorIndex !== null && highlightColorIndex !== undefined;
@@ -49,7 +51,7 @@ export function renderPixels(
       const cell = canvasData[row][srcCol];
 
       if (cell.colorIndex !== null) {
-        const color = MARD_COLORS[cell.colorIndex];
+        const color = getEffectiveColor(cell.colorIndex, overrides);
 
         if (!textOnly) {
           ctx.fillStyle = color.hex || "#FF00FF";

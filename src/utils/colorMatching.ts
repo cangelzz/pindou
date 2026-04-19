@@ -1,40 +1,45 @@
 import { MARD_COLORS, getGroupIndices } from "../data/mard221";
 import type { ColorMatchAlgorithm } from "../types";
 import { rgbToLab, deltaE76, euclideanRGB, type Lab } from "./colorConversion";
+import { getEffectiveColor, type ColorOverrideMap } from "./colorHelper";
 
-/** Pre-computed Lab values for all MARD colors */
 let labCache: Lab[] | null = null;
+let labCacheOverrides: ColorOverrideMap | null = null;
 
-function getLabCache(): Lab[] {
-  if (!labCache) {
-    labCache = MARD_COLORS.map((c) => {
-      if (!c.rgb) return [0, 0, 0] as Lab;
-      return rgbToLab(c.rgb[0], c.rgb[1], c.rgb[2]);
-    });
-  }
+function getLabCache(overrides?: ColorOverrideMap): Lab[] {
+  const ov = overrides || new Map();
+  if (labCache && labCacheOverrides === ov) return labCache;
+  labCache = MARD_COLORS.map((_, i) => {
+    const c = getEffectiveColor(i, ov);
+    if (!c.rgb) return [0, 0, 0] as Lab;
+    return rgbToLab(c.rgb[0], c.rgb[1], c.rgb[2]);
+  });
+  labCacheOverrides = ov;
   return labCache;
 }
 
-/**
- * Find the closest MARD color index for a given RGB value.
- * Returns the index into MARD_COLORS array.
- * If allowedIndices is provided, only search within those indices.
- */
+export function invalidateLabCache(): void {
+  labCache = null;
+  labCacheOverrides = null;
+}
+
 export function findClosestColor(
   r: number,
   g: number,
   b: number,
   algorithm: ColorMatchAlgorithm = "ciede2000",
-  allowedIndices?: number[]
+  allowedIndices?: number[],
+  colorOverrides?: ColorOverrideMap,
 ): number {
   let minDist = Infinity;
   let minIndex = 0;
 
   const indices = allowedIndices ?? MARD_COLORS.map((_, i) => i);
+  const ov = colorOverrides || new Map();
 
   if (algorithm === "euclidean") {
     for (const i of indices) {
-      const c = MARD_COLORS[i];
+      const c = getEffectiveColor(i, ov);
       if (!c.rgb) continue;
       const d = euclideanRGB([r, g, b], c.rgb);
       if (d < minDist) {
@@ -44,9 +49,10 @@ export function findClosestColor(
     }
   } else {
     const inputLab = rgbToLab(r, g, b);
-    const cache = getLabCache();
+    const cache = getLabCache(ov);
     for (const i of indices) {
-      if (!MARD_COLORS[i].rgb) continue;
+      const c = getEffectiveColor(i, ov);
+      if (!c.rgb) continue;
       const d = deltaE76(inputLab, cache[i]);
       if (d < minDist) {
         minDist = d;

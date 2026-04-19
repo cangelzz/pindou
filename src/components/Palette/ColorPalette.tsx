@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { MARD_COLORS, COLOR_GROUPS, getGroupIndices } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
+import { getEffectiveHex } from "../../utils/colorHelper";
 
 /** Get series prefix from color code */
 function getSeriesPrefix(code: string): string {
@@ -30,6 +31,9 @@ export function ColorPalette() {
   const removeCustomColorGroup = useEditorStore((s) => s.removeCustomColorGroup);
   const toggleColorInGroup = useEditorStore((s) => s.toggleColorInGroup);
   const reorderCustomGroupColors = useEditorStore((s) => s.reorderCustomGroupColors);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
+  const setColorOverride = useEditorStore((s) => s.setColorOverride);
+  const removeColorOverride = useEditorStore((s) => s.removeColorOverride);
   const [search, setSearch] = useState("");
   const [groupId, setGroupId] = useState("mard221");
   const [showReplace, setShowReplace] = useState(false);
@@ -37,6 +41,9 @@ export function ColorPalette() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
+  const [editOverrideIndex, setEditOverrideIndex] = useState<number | null>(null);
+  const [editOverrideHex, setEditOverrideHex] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; colorIndex: number } | null>(null);
 
   // Auto-scroll to selected color in palette
   useEffect(() => {
@@ -217,40 +224,26 @@ export function ColorPalette() {
                       setTool("pen");
                     }}
                     onContextMenu={(e) => {
-                      // Right-click: add/remove from a custom group
-                      if (customColorGroups.length === 0) return;
                       e.preventDefault();
-                      if (isCustomGroup && currentCustomGroup) {
-                        // Toggle in current custom group
-                        toggleColorInGroup(groupId, index);
-                      } else if (customColorGroups.length === 1) {
-                        toggleColorInGroup(customColorGroups[0].id, index);
-                      } else {
-                        // Show which group to add to (simple prompt)
-                        const names = customColorGroups.map((g, i) => `${i + 1}. ${g.name}`).join("\n");
-                        const choice = prompt(`添加 ${color.code} 到哪个自定义色组？\n${names}`, "1");
-                        if (choice) {
-                          const idx = parseInt(choice) - 1;
-                          if (idx >= 0 && idx < customColorGroups.length) {
-                            toggleColorInGroup(customColorGroups[idx].id, index);
-                          }
-                        }
-                      }
+                      setContextMenu({ x: e.clientX, y: e.clientY, colorIndex: index });
                     }}
-                    className={`flex items-center justify-center rounded-sm border transition-all
+                    className={`relative flex items-center justify-center rounded-sm border transition-all
                       ${isSelected ? "ring-2 ring-blue-500 ring-offset-1 z-10" : "border-gray-200 hover:border-gray-400"}`}
                     style={{
-                      backgroundColor: color.hex || "#FFF",
-                      color: textColor(color.hex || "#FFF"),
+                      backgroundColor: getEffectiveHex(index, colorOverrides),
+                      color: textColor(getEffectiveHex(index, colorOverrides)),
                       width: 36,
                       height: 28,
                       fontSize: 8,
                       fontWeight: 600,
                       lineHeight: 1,
                     }}
-                    title={`${color.code}\n${color.hex}\nRGB(${color.rgb?.join(", ")})`}
+                    title={`${color.code}\n${getEffectiveHex(index, colorOverrides)}\nRGB(${color.rgb?.join(", ")})${colorOverrides.has(index) ? "\n(已调整)" : ""}`}
                   >
                     {color.code}
+                    {colorOverrides.has(index) && (
+                      <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-orange-400 rounded-full" />
+                    )}
                   </button>
                 );
               })}
@@ -265,11 +258,11 @@ export function ColorPalette() {
           <div className="flex items-center gap-2">
             <div
               className="w-6 h-6 rounded border border-gray-300 shrink-0"
-              style={{ backgroundColor: MARD_COLORS[selectedColorIndex]?.hex }}
+              style={{ backgroundColor: getEffectiveHex(selectedColorIndex, colorOverrides) }}
             />
             <div className="min-w-0 flex-1">
               <div className="font-semibold">{MARD_COLORS[selectedColorIndex]?.code}</div>
-              <div className="text-gray-400 truncate">{MARD_COLORS[selectedColorIndex]?.hex}</div>
+              <div className="text-gray-400 truncate">{getEffectiveHex(selectedColorIndex, colorOverrides)}</div>
             </div>
             <span className="text-gray-500 shrink-0">{selectedCount} 颗</span>
           </div>
@@ -324,7 +317,7 @@ export function ColorPalette() {
                           ? "ring-2 ring-blue-500"
                           : "border-gray-200 hover:border-gray-400"
                       }`}
-                      style={{ backgroundColor: c.hex }}
+                      style={{ backgroundColor: getEffectiveHex(i, colorOverrides) }}
                       title={c.code}
                     />
                   );
@@ -335,12 +328,12 @@ export function ColorPalette() {
                   {/* Preview: before → after */}
                   <div className="flex items-center gap-2 mb-1.5">
                     <div className="flex items-center gap-1">
-                      <div className="w-6 h-6 rounded border" style={{ backgroundColor: MARD_COLORS[selectedColorIndex]?.hex }} />
+                      <div className="w-6 h-6 rounded border" style={{ backgroundColor: getEffectiveHex(selectedColorIndex, colorOverrides) }} />
                       <span className="text-[10px] font-medium">{MARD_COLORS[selectedColorIndex]?.code}</span>
                     </div>
                     <span className="text-gray-400 text-xs">→</span>
                     <div className="flex items-center gap-1">
-                      <div className="w-6 h-6 rounded border" style={{ backgroundColor: MARD_COLORS[replaceTargetIndex]?.hex }} />
+                      <div className="w-6 h-6 rounded border" style={{ backgroundColor: getEffectiveHex(replaceTargetIndex, colorOverrides) }} />
                       <span className="text-[10px] font-medium">{MARD_COLORS[replaceTargetIndex]?.code}</span>
                     </div>
                     <span className="text-[10px] text-gray-400 ml-auto">{selectedCount} 颗</span>
@@ -372,6 +365,148 @@ export function ColorPalette() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Floating context menu */}
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
+          <div
+            className="fixed z-50 bg-white rounded-lg shadow-lg border py-1 min-w-[140px] text-xs"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              className="w-full px-3 py-1.5 text-left hover:bg-gray-100 flex items-center gap-2"
+              onClick={() => {
+                const ci = contextMenu.colorIndex;
+                const current = colorOverrides.get(ci)?.hex || MARD_COLORS[ci]?.hex || "#FFFFFF";
+                setEditOverrideIndex(ci);
+                setEditOverrideHex(current);
+                setContextMenu(null);
+              }}
+            >
+              🎨 调整颜色
+            </button>
+            {colorOverrides.has(contextMenu.colorIndex) && (
+              <button
+                className="w-full px-3 py-1.5 text-left hover:bg-gray-100 flex items-center gap-2"
+                onClick={() => {
+                  removeColorOverride(contextMenu.colorIndex);
+                  setContextMenu(null);
+                }}
+              >
+                ↩ 还原颜色
+              </button>
+            )}
+            {isCustomGroup && currentCustomGroup && (
+              <button
+                className="w-full px-3 py-1.5 text-left hover:bg-gray-100 flex items-center gap-2 border-t"
+                onClick={() => {
+                  toggleColorInGroup(groupId, contextMenu.colorIndex);
+                  setContextMenu(null);
+                }}
+              >
+                ✕ 从色组移除
+              </button>
+            )}
+            {!isCustomGroup && customColorGroups.length === 1 && (
+              <button
+                className="w-full px-3 py-1.5 text-left hover:bg-gray-100 flex items-center gap-2 border-t"
+                onClick={() => {
+                  toggleColorInGroup(customColorGroups[0].id, contextMenu.colorIndex);
+                  setContextMenu(null);
+                }}
+              >
+                ＋ 添加到 {customColorGroups[0].name}
+              </button>
+            )}
+            {!isCustomGroup && customColorGroups.length > 1 && (
+              customColorGroups.map((g) => (
+                <button
+                  key={g.id}
+                  className="w-full px-3 py-1.5 text-left hover:bg-gray-100 flex items-center gap-2 first:border-t"
+                  onClick={() => {
+                    toggleColorInGroup(g.id, contextMenu.colorIndex);
+                    setContextMenu(null);
+                  }}
+                >
+                  ＋ {g.name}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Color override edit dialog */}
+      {editOverrideIndex !== null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[280px] p-4">
+            <h3 className="text-sm font-semibold mb-3">调整颜色 — {MARD_COLORS[editOverrideIndex]?.code}</h3>
+            <div className="flex items-center gap-3 mb-3">
+              <div>
+                <div className="text-[10px] text-gray-400 mb-1">原始</div>
+                <div
+                  className="w-10 h-10 rounded border"
+                  style={{ backgroundColor: MARD_COLORS[editOverrideIndex]?.hex }}
+                />
+              </div>
+              <span className="text-gray-400">→</span>
+              <div>
+                <div className="text-[10px] text-gray-400 mb-1">调整后</div>
+                <div
+                  className="w-10 h-10 rounded border"
+                  style={{ backgroundColor: editOverrideHex }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="color"
+                value={editOverrideHex}
+                onChange={(e) => setEditOverrideHex(e.target.value)}
+                className="w-8 h-8 cursor-pointer"
+              />
+              <input
+                type="text"
+                value={editOverrideHex}
+                onChange={(e) => setEditOverrideHex(e.target.value)}
+                className="flex-1 px-2 py-1 border rounded text-sm font-mono"
+                placeholder="#RRGGBB"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              {colorOverrides.has(editOverrideIndex) && (
+                <button
+                  onClick={() => {
+                    removeColorOverride(editOverrideIndex);
+                    setEditOverrideIndex(null);
+                  }}
+                  className="px-3 py-1 text-xs text-red-500 border rounded hover:bg-red-50"
+                >
+                  还原
+                </button>
+              )}
+              <button
+                onClick={() => setEditOverrideIndex(null)}
+                className="px-3 py-1 text-xs border rounded hover:bg-gray-100"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  if (/^#[0-9a-fA-F]{6}$/.test(editOverrideHex)) {
+                    setColorOverride(editOverrideIndex, editOverrideHex);
+                    setEditOverrideIndex(null);
+                  }
+                }}
+                className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                保存
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

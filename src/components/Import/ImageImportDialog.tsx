@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { matchImageToMard } from "../../utils/colorMatching";
-import { MARD_COLORS, COLOR_GROUPS } from "../../data/mard221";
+import { COLOR_GROUPS } from "../../data/mard221";
+import { getEffectiveHex } from "../../utils/colorHelper";
 import { detectPixelGrid } from "../../utils/gridDetect";
 import type { ColorMatchAlgorithm, CanvasCell } from "../../types";
 import { getAdapter } from "../../adapters";
@@ -13,6 +14,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const setRefImage = useEditorStore((s) => s.setRefImage);
   const setImportedFileName = useEditorStore((s) => s.setImportedFileName);
   const currentCanvasSize = useEditorStore((s) => s.canvasSize);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
   const [filePath, setFilePath] = useState<string | null>(null);
   const [maxDimension, setMaxDimension] = useState(52);
@@ -1100,8 +1102,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                           for (let r = 0; r < actualSize.height; r++) {
                             for (let c = 0; c < actualSize.width; c++) {
                               const ci = item.indices[r * actualSize.width + c];
-                              const color = MARD_COLORS[ci];
-                              ctx.fillStyle = color?.hex || "#FFF";
+                              ctx.fillStyle = getEffectiveHex(ci, colorOverrides);
                               ctx.fillRect(c, r, 1, 1);
                             }
                           }
@@ -1152,8 +1153,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
                       for (let col = 0; col < actualSize.width; col++) {
                         const idx =
                           matchedPreview[row * actualSize.width + col];
-                        const color = MARD_COLORS[idx];
-                        ctx.fillStyle = color?.hex || "#FFF";
+                        ctx.fillStyle = getEffectiveHex(idx, colorOverrides);
                         ctx.fillRect(col, row, 1, 1);
                       }
                     }

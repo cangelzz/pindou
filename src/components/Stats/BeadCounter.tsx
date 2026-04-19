@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { MARD_COLORS } from "../../data/mard221";
+import { getEffectiveColor } from "../../utils/colorHelper";
 import type { BeadCount } from "../../types";
 
 type SortMode = "count" | "code";
 
 export function BeadCounter() {
   const canvasData = useEditorStore((s) => s.canvasData);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
   const [sortMode, setSortMode] = useState<SortMode>("count");
 
   const counts = useMemo<BeadCount[]>(() => {
@@ -21,12 +23,13 @@ export function BeadCounter() {
 
     const result: BeadCount[] = [];
     for (const [idx, count] of map) {
-      const c = MARD_COLORS[idx];
-      if (c) {
+      const base = MARD_COLORS[idx];
+      if (base) {
+        const c = getEffectiveColor(idx, colorOverrides);
         result.push({
           colorIndex: idx,
-          code: c.code,
-          name: c.name,
+          code: base.code,
+          name: base.name,
           hex: c.hex,
           count,
         });
@@ -39,7 +42,7 @@ export function BeadCounter() {
       result.sort((a, b) => a.code.localeCompare(b.code));
     }
     return result;
-  }, [canvasData, sortMode]);
+  }, [canvasData, sortMode, colorOverrides]);
 
   const totalBeads = counts.reduce((sum, c) => sum + c.count, 0);
   const totalColors = counts.length;

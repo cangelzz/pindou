@@ -1,5 +1,7 @@
 import { useRef, useEffect } from "react";
-import { MARD_COLORS } from "../../data/mard221";
+import { useEditorStore } from "../../store/editorStore";
+import { getEffectiveHex } from "../../utils/colorHelper";
+import type { ColorOverrideMap } from "../../utils/colorHelper";
 import type { CanvasData } from "../../types";
 
 interface ComparePreviewProps {
@@ -20,6 +22,7 @@ function renderPreview(
   width: number,
   height: number,
   maxSize: number,
+  colorOverrides: ColorOverrideMap,
 ) {
   const aspect = width / height;
   const w = aspect >= 1 ? maxSize : Math.round(maxSize * aspect);
@@ -47,8 +50,7 @@ function renderPreview(
     for (let c = 0; c < width && c < data[r].length; c++) {
       const cell = data[r][c];
       if (cell.colorIndex !== null) {
-        const color = MARD_COLORS[cell.colorIndex];
-        ctx.fillStyle = color?.hex || "#FF00FF";
+        ctx.fillStyle = getEffectiveHex(cell.colorIndex, colorOverrides);
         ctx.fillRect(
           Math.floor(c * sx),
           Math.floor(r * sy),
@@ -71,18 +73,19 @@ function formatTime(iso: string): string {
 export function CloudComparePreview(props: ComparePreviewProps) {
   const localRef = useRef<HTMLCanvasElement>(null);
   const cloudRef = useRef<HTMLCanvasElement>(null);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
   useEffect(() => {
     if (localRef.current) {
-      renderPreview(localRef.current, props.localData, props.localSize.width, props.localSize.height, 200);
+      renderPreview(localRef.current, props.localData, props.localSize.width, props.localSize.height, 200, colorOverrides);
     }
-  }, [props.localData, props.localSize]);
+  }, [props.localData, props.localSize, colorOverrides]);
 
   useEffect(() => {
     if (cloudRef.current) {
-      renderPreview(cloudRef.current, props.cloudData, props.cloudSize.width, props.cloudSize.height, 200);
+      renderPreview(cloudRef.current, props.cloudData, props.cloudSize.width, props.cloudSize.height, 200, colorOverrides);
     }
-  }, [props.cloudData, props.cloudSize]);
+  }, [props.cloudData, props.cloudSize, colorOverrides]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">

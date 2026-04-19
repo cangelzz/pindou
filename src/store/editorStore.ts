@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { getAdapter } from "../adapters";
 import type { SnapshotInfo } from "../adapters";
+import { loadOverrides, saveOverrides, hexToRgb, type ColorOverrideMap } from "../utils/colorHelper";
 import type {
   BeadLayer,
   CanvasCell,
@@ -81,6 +82,8 @@ interface EditorState {
   // Custom color groups
   customColorGroups: { id: string; name: string; colorIndices: number[] }[];
 
+  // Color overrides (user calibration)
+  colorOverrides: ColorOverrideMap;
   // Selection
   selection: Set<string> | null;
   selectionBounds: { r1: number; c1: number; r2: number; c2: number } | null;
@@ -107,6 +110,9 @@ interface EditorState {
   renameCustomColorGroup: (id: string, name: string) => void;
   toggleColorInGroup: (groupId: string, colorIndex: number) => void;
   reorderCustomGroupColors: (groupId: string, colorIndices: number[]) => void;
+  setColorOverride: (colorIndex: number, hex: string) => void;
+  removeColorOverride: (colorIndex: number) => void;
+  clearColorOverrides: () => void;
   setGridStartCoords: (startX: number, startY: number) => void;
   setEdgePadding: (padding: number) => void;
   setGridVisible: (visible: boolean) => void;
@@ -347,6 +353,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   customColorGroups: JSON.parse(localStorage.getItem("pindou_custom_groups") || "[]"),
+  colorOverrides: loadOverrides(),
 
   selection: null,
   selectionBounds: null,
@@ -513,6 +520,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     localStorage.setItem("pindou_custom_groups", JSON.stringify(groups));
     return { customColorGroups: groups };
   }),
+
+  setColorOverride: (colorIndex, hex) => set((state) => {
+    const overrides = new Map(state.colorOverrides);
+    overrides.set(colorIndex, { hex, rgb: hexToRgb(hex) });
+    saveOverrides(overrides);
+    return { colorOverrides: overrides };
+  }),
+
+  removeColorOverride: (colorIndex) => set((state) => {
+    const overrides = new Map(state.colorOverrides);
+    overrides.delete(colorIndex);
+    saveOverrides(overrides);
+    return { colorOverrides: overrides };
+  }),
+
+  clearColorOverrides: () => {
+    saveOverrides(new Map());
+    set({ colorOverrides: new Map() });
+  },
 
   setGridStartCoords: (startX, startY) => set((state) => ({
     gridConfig: { ...state.gridConfig, startX, startY },

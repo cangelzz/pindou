@@ -1,5 +1,5 @@
 import type { CanvasCell } from "../types";
-import { MARD_COLORS } from "../data/mard221";
+import { getEffectiveHex, type ColorOverrideMap } from "./colorHelper";
 
 /**
  * Render marching ants border around selected cells.
@@ -84,6 +84,7 @@ export function renderFloatingSelection(
   cellSize: number,
   canvasOffsetX: number,
   canvasOffsetY: number,
+  colorOverrides?: ColorOverrideMap,
 ): void {
   ctx.save();
   ctx.globalAlpha = 0.7;
@@ -94,8 +95,8 @@ export function renderFloatingSelection(
     const c = lc + offsetCol;
     const x = c * cellSize + canvasOffsetX;
     const y = r * cellSize + canvasOffsetY;
-    const color = MARD_COLORS[cell.colorIndex];
-    ctx.fillStyle = color?.hex || "#FF00FF";
+    const hex = getEffectiveHex(cell.colorIndex, colorOverrides || new Map());
+    ctx.fillStyle = hex;
     ctx.fillRect(x, y, cellSize, cellSize);
   }
   ctx.restore();

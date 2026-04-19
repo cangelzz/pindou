@@ -12,6 +12,7 @@ import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
+import { getEffectiveColor } from "./utils/colorHelper";
 import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
@@ -115,6 +116,7 @@ function App() {
   const redoStack = useEditorStore((s) => s.redoStack);
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
   const [newW, setNewW] = useState(52);
   const [newH, setNewH] = useState(52);
@@ -332,8 +334,12 @@ function App() {
             setBlueprintProgress(gridWidth ? `正在导入 ${gridWidth}×${gridHeight} 图纸...` : "正在自动检测网格...");
             try {
               const palette = MARD_COLORS
-                .filter((c) => c.rgb)
-                .map((c) => ({ code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }));
+                .map((c, i) => ({ c, i }))
+                .filter(({ c }) => c.rgb)
+                .map(({ c, i }) => {
+                  const eff = getEffectiveColor(i, colorOverrides);
+                  return { code: c.code, r: eff.rgb![0], g: eff.rgb![1], b: eff.rgb![2] };
+                });
 
               setBlueprintProgress("正在分析网格结构和识别颜色...");
               const result = await adapter.importBlueprint(path, palette, gridWidth, gridHeight);

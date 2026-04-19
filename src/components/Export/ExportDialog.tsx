@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { MARD_COLORS } from "../../data/mard221";
+import { getEffectiveColor } from "../../utils/colorHelper";
 import { getAdapter } from "../../adapters";
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
@@ -9,6 +10,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const importedFileName = useEditorStore((s) => s.importedFileName);
   const projectPath = useEditorStore((s) => s.projectPath);
   const gridConfig = useEditorStore((s) => s.gridConfig);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
   const [cellSize, setCellSize] = useState(30);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
@@ -30,10 +32,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     canvasData.map((row) =>
       row.map((cell) => {
         if (cell.colorIndex === null) return null;
-        const c = MARD_COLORS[cell.colorIndex];
-        return c
-          ? { color_code: c.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] }
-          : null;
+        const base = MARD_COLORS[cell.colorIndex];
+        if (!base) return null;
+        const c = getEffectiveColor(cell.colorIndex, colorOverrides);
+        return { color_code: base.code, r: c.rgb![0], g: c.rgb![1], b: c.rgb![2] };
       })
     );
 
