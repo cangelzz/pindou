@@ -34,6 +34,7 @@ export function ColorPalette() {
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
   const setColorOverride = useEditorStore((s) => s.setColorOverride);
   const removeColorOverride = useEditorStore((s) => s.removeColorOverride);
+  const clearColorOverrides = useEditorStore((s) => s.clearColorOverrides);
   const [search, setSearch] = useState("");
   const [groupId, setGroupId] = useState("mard221");
   const [showReplace, setShowReplace] = useState(false);
@@ -61,13 +62,16 @@ export function ColorPalette() {
 
   // Check if current group is a custom group
   const isCustomGroup = groupId.startsWith("custom_");
+  const isOverridesGroup = groupId === "__overrides__";
   const currentCustomGroup = customColorGroups.find((g) => g.id === groupId);
 
   // Group filtered items by series
   const grouped = useMemo(() => {
     let items: { color: typeof MARD_COLORS[0]; index: number }[];
 
-    if (isCustomGroup && currentCustomGroup) {
+    if (isOverridesGroup) {
+      items = [...colorOverrides.keys()].map((i) => ({ color: MARD_COLORS[i], index: i }));
+    } else if (isCustomGroup && currentCustomGroup) {
       // Custom group: use explicit color indices
       const indexSet = new Set(currentCustomGroup.colorIndices);
       items = MARD_COLORS
@@ -98,7 +102,7 @@ export function ColorPalette() {
       map.get(prefix)!.push(item);
     }
     return map;
-  }, [search, groupId, isCustomGroup, currentCustomGroup]);
+  }, [search, groupId, isCustomGroup, isOverridesGroup, currentCustomGroup, colorOverrides]);
 
   const totalCount = useMemo(() => {
     let n = 0;
@@ -128,6 +132,12 @@ export function ColorPalette() {
             {customColorGroups.map((g) => (
               <option key={g.id} value={g.id}>{g.name} ({g.colorIndices.length})</option>
             ))}
+            {colorOverrides.size > 0 && (
+              <>
+                <option disabled>──── 调整 ────</option>
+                <option value="__overrides__">已调整颜色 ({colorOverrides.size})</option>
+              </>
+            )}
           </select>
           <button
             onClick={() => {
@@ -141,6 +151,20 @@ export function ColorPalette() {
           >
             +
           </button>
+          {isOverridesGroup && (
+            <button
+              onClick={() => {
+                if (confirm("确定还原所有已调整的颜色？")) {
+                  clearColorOverrides();
+                  setGroupId("mard221");
+                }
+              }}
+              className="w-6 h-6 flex items-center justify-center rounded border hover:bg-red-100 text-red-500 text-xs shrink-0"
+              title="还原所有调整"
+            >
+              ↩
+            </button>
+          )}
           {isCustomGroup && (
             <button
               onClick={() => {
