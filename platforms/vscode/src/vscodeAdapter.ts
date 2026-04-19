@@ -145,9 +145,85 @@ export class VScodeAdapter implements PlatformAdapter {
     throw new Error("Image import not yet supported in VS Code extension. Use desktop app for image import.");
   }
 
-  async exportImage(_request: ExportImageRequest): Promise<void> {
-    // Export would require canvas rendering in webview + saving
-    throw new Error("Image export not yet supported in VS Code extension. Use desktop app for export.");
+  async exportImage(request: ExportImageRequest): Promise<void> {
+    const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding } = request;
+
+    const imgW = width * cell_size;
+    const imgH = height * cell_size;
+    const canvas = document.createElement("canvas");
+    canvas.width = imgW;
+    canvas.height = imgH;
+    const ctx = canvas.getContext("2d")!;
+
+    // Fill background white
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, imgW, imgH);
+
+    // Draw cells
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const cell = cells[row]?.[col];
+        if (!cell) continue;
+        const x = col * cell_size;
+        const y = row * cell_size;
+        ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
+        ctx.fillRect(x, y, cell_size, cell_size);
+
+        // Cell border
+        ctx.strokeStyle = "rgba(0,0,0,0.15)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, cell_size, cell_size);
+
+        // Color code text
+        if (cell_size >= 16) {
+          const fontSize = Math.max(7, Math.min(cell_size * 0.32, 14));
+          ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const lum = 0.299 * cell.r + 0.587 * cell.g + 0.114 * cell.b;
+          ctx.fillStyle = lum > 140 ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.95)";
+          ctx.fillText(cell.color_code, x + cell_size / 2, y + cell_size / 2, cell_size - 2);
+        }
+      }
+    }
+
+    // Group grid lines
+    const groupSize = 5;
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.lineWidth = 2;
+    for (let col = edge_padding; col <= width - edge_padding; col += groupSize) {
+      const x = col * cell_size;
+      ctx.beginPath();
+      ctx.moveTo(x, edge_padding * cell_size);
+      ctx.lineTo(x, (height - edge_padding) * cell_size);
+      ctx.stroke();
+    }
+    for (let row = edge_padding; row <= height - edge_padding; row += groupSize) {
+      const y = row * cell_size;
+      ctx.beginPath();
+      ctx.moveTo(edge_padding * cell_size, y);
+      ctx.lineTo((width - edge_padding) * cell_size, y);
+      ctx.stroke();
+    }
+
+    // Coordinate labels
+    const labelSize = Math.max(8, cell_size * 0.35);
+    ctx.font = `${labelSize}px sans-serif`;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (let col = edge_padding; col < width - edge_padding; col += groupSize) {
+      ctx.fillText(String(col - edge_padding + start_x), (col + groupSize / 2) * cell_size, edge_padding > 0 ? (edge_padding * cell_size) / 2 : -labelSize);
+    }
+    for (let row = edge_padding; row < height - edge_padding; row += groupSize) {
+      ctx.fillText(String(row - edge_padding + start_y), edge_padding > 0 ? (edge_padding * cell_size) / 2 : -labelSize, (row + groupSize / 2) * cell_size);
+    }
+
+    // Export to blob and save via extension host
+    const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
+    const dataUrl = canvas.toDataURL(mimeType, 0.95);
+    const base64 = dataUrl.split(",")[1];
+    await sendRequest("writeFile", { path: output_path, data: base64 });
   }
 
   async exportPreview(_request: ExportPreviewRequest): Promise<void> {

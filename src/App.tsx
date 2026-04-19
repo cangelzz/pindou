@@ -123,6 +123,7 @@ function App() {
 
   // Resizable right panel
   const [rightPanelWidth, setRightPanelWidth] = useState(224);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isResizingPanel = useRef(false);
   const handlePanelResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -453,6 +454,16 @@ function App() {
 
         {/* Right panel (resizable) */}
         <div className="flex min-h-0">
+          {/* Sidebar toggle */}
+          <button
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className="w-5 flex items-center justify-center bg-gray-100 hover:bg-gray-200 border-l text-gray-400 hover:text-gray-600 text-xs shrink-0"
+            title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
+          >
+            {sidebarCollapsed ? "◀" : "▶"}
+          </button>
+          {!sidebarCollapsed && (
+            <>
           {/* Resize handle */}
           <div
             className="w-1 cursor-col-resize hover:bg-blue-300 active:bg-blue-400 bg-gray-200 transition-colors"
@@ -714,6 +725,8 @@ function App() {
             )}
           </div>
         </div>
+            </>
+          )}
         </div>
       </div>
 
