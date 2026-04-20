@@ -490,6 +490,7 @@ export function PixelCanvas() {
         floatingSelectionState.offsetCol,
         cellSize, offsetX, offsetY,
         colorOverrides,
+        antOffset,
       );
     }
 
@@ -732,6 +733,28 @@ export function PixelCanvas() {
           const cell = screenToCell(e.clientX, e.clientY);
           if (!cell) return;
           const { row, col } = cell;
+
+          // Check if clicking inside floating selection → start dragging it
+          if (floatingSelectionState) {
+            const { offsetRow, offsetCol, cells: fCells } = floatingSelectionState;
+            const localR = row - offsetRow;
+            const localC = col - offsetCol;
+            if (fCells.has(`${localR},${localC}`)) {
+              isDraggingSelection.current = true;
+              selectionDragStart.current = {
+                row, col, mouseX: e.clientX, mouseY: e.clientY,
+                initialOffsetRow: offsetRow,
+                initialOffsetCol: offsetCol,
+              };
+              return;
+            }
+            // Clicked outside floating selection → commit it
+            commitFloatingSelection();
+            clearSelection();
+            selectionStart.current = { row, col };
+            return;
+          }
+
           if (selection && selection.has(`${row},${col}`)) {
             isDraggingSelection.current = true;
             const bounds = useEditorStore.getState().selectionBounds;
@@ -741,9 +764,6 @@ export function PixelCanvas() {
               initialOffsetCol: bounds?.c1 ?? col,
             };
             return;
-          }
-          if (floatingSelectionState) {
-            commitFloatingSelection();
           }
           clearSelection();
           selectionStart.current = { row, col };
@@ -863,6 +883,29 @@ export function PixelCanvas() {
       if (isDragging.current && e.buttons === 1) {
         const cell = screenToCell(e.clientX, e.clientY);
         if (cell) applyTool(cell.row, cell.col);
+        return;
+      }
+
+      // Update hover cursor for floating selection / selection
+      if (currentTool === "select" || currentTool === "wand") {
+        const cell = screenToCell(e.clientX, e.clientY);
+        if (cell) {
+          const fs = useEditorStore.getState().floatingSelection;
+          const sel = useEditorStore.getState().selection;
+          if (fs) {
+            const localR = cell.row - fs.offsetRow;
+            const localC = cell.col - fs.offsetCol;
+            setHoverOnFloat(fs.cells.has(`${localR},${localC}`));
+          } else if (sel) {
+            setHoverOnFloat(sel.has(`${cell.row},${cell.col}`));
+          } else {
+            setHoverOnFloat(false);
+          }
+        } else {
+          setHoverOnFloat(false);
+        }
+      } else {
+        setHoverOnFloat(false);
       }
     },
     [screenToCell, applyTool, setOffset, isShapeTool, computeShapeCells, currentTool, setSelection]
@@ -875,11 +918,8 @@ export function PixelCanvas() {
         selectionStart.current = null;
       }
 
-      // Finish moving selection cells
+      // Finish moving selection/floating cells
       if (isDraggingSelection.current) {
-        if (useEditorStore.getState().floatingSelection) {
-          useEditorStore.getState().commitFloatingSelection();
-        }
         isDraggingSelection.current = false;
         selectionDragStart.current = null;
       }
@@ -1039,14 +1079,19 @@ export function PixelCanvas() {
   }, []);
 
   // Cursor style
+  const [hoverOnFloat, setHoverOnFloat] = useState(false);
   const cursor =
-    currentTool === "pan"
-      ? "grab"
-      : currentTool === "eyedropper" || currentTool === "fill"
-        ? "crosshair"
-        : currentTool === "select" || currentTool === "wand"
-          ? "crosshair"
-          : "default";
+    isDraggingSelection.current
+      ? "grabbing"
+      : hoverOnFloat
+        ? "grab"
+        : currentTool === "pan"
+          ? "grab"
+          : currentTool === "eyedropper" || currentTool === "fill"
+            ? "crosshair"
+            : currentTool === "select" || currentTool === "wand"
+              ? "crosshair"
+              : "default";
 
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0">

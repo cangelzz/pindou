@@ -85,6 +85,7 @@ export function renderFloatingSelection(
   canvasOffsetX: number,
   canvasOffsetY: number,
   colorOverrides?: ColorOverrideMap,
+  dashOffset?: number,
 ): void {
   ctx.save();
   ctx.globalAlpha = 0.7;
@@ -98,6 +99,33 @@ export function renderFloatingSelection(
     const hex = getEffectiveHex(cell.colorIndex, colorOverrides || new Map());
     ctx.fillStyle = hex;
     ctx.fillRect(x, y, cellSize, cellSize);
+  }
+  ctx.restore();
+
+  // Draw marching ants border around floating selection
+  ctx.save();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.lineDashOffset = dashOffset ?? 0;
+  for (const [key] of cells) {
+    const [lr, lc] = key.split(",").map(Number);
+    const r = lr + offsetRow;
+    const c = lc + offsetCol;
+    const x = c * cellSize + canvasOffsetX;
+    const y = r * cellSize + canvasOffsetY;
+    if (!cells.has(`${lr - 1},${lc}`)) {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + cellSize, y); ctx.stroke();
+    }
+    if (!cells.has(`${lr + 1},${lc}`)) {
+      ctx.beginPath(); ctx.moveTo(x, y + cellSize); ctx.lineTo(x + cellSize, y + cellSize); ctx.stroke();
+    }
+    if (!cells.has(`${lr},${lc - 1}`)) {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + cellSize); ctx.stroke();
+    }
+    if (!cells.has(`${lr},${lc + 1}`)) {
+      ctx.beginPath(); ctx.moveTo(x + cellSize, y); ctx.lineTo(x + cellSize, y + cellSize); ctx.stroke();
+    }
   }
   ctx.restore();
 }

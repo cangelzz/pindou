@@ -133,7 +133,7 @@ interface EditorState {
   selectAll: () => void;
   copySelection: () => void;
   cutSelection: () => void;
-  pasteClipboard: () => void;
+  pasteClipboard: () => Promise<void>;
   deleteSelection: () => void;
   commitFloatingSelection: () => void;
   liftSelectionToFloat: () => void;
@@ -381,6 +381,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       refImageHeight: 0,
       refImageVisible: true,
       refImageOpacity: 0.3,
+      selection: null,
+      selectionBounds: null,
+      floatingSelection: null,
       cloudGistId: null,
       cloudUpdatedAt: null,
       cloudProjectName: null,
@@ -770,6 +773,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }
     set({ clipboard: { cells, width: c2 - c1 + 1, height: r2 - r1 + 1 } });
+    // Write to system clipboard for cross-window paste
+    const data = {
+      type: "pindou-selection",
+      width: c2 - c1 + 1,
+      height: r2 - r1 + 1,
+      cells: [...cells.entries()].map(([k, v]) => [k, v.colorIndex]),
+    };
+    navigator.clipboard.writeText(JSON.stringify(data)).catch(() => {});
   },
 
   cutSelection: () => {
@@ -779,19 +790,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     get().deleteSelection();
   },
 
-  pasteClipboard: () => {
+  pasteClipboard: async () => {
     const state = get();
-    if (!state.clipboard) return;
     if (state.floatingSelection) {
       get().commitFloatingSelection();
     }
-    const { width: cw, height: ch } = state.canvasSize;
-    const { width: pw, height: ph } = state.clipboard;
+
+    // Try system clipboard first (cross-window paste)
+    let clipData = state.clipboard;
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text);
+      if (parsed?.type === "pindou-selection" && parsed.cells) {
+        const cells = new Map<string, CanvasCell>();
+        for (const [k, ci] of parsed.cells) {
+          cells.set(k, { colorIndex: ci });
+        }
+        clipData = { cells, width: parsed.width, height: parsed.height };
+      }
+    } catch {
+      // System clipboard unavailable or not pindou data, use local
+    }
+
+    if (!clipData) return;
+    const { width: cw, height: ch } = get().canvasSize;
+    const { width: pw, height: ph } = clipData;
     const offsetRow = Math.floor((ch - ph) / 2);
     const offsetCol = Math.floor((cw - pw) / 2);
     set({
       floatingSelection: {
-        cells: new Map(state.clipboard.cells),
+        cells: new Map(clipData.cells),
         offsetRow,
         offsetCol,
       },
@@ -992,6 +1020,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       refImageHeight: 0,
       refImageVisible: true,
       refImageOpacity: 0.3,
+      selection: null,
+      selectionBounds: null,
+      floatingSelection: null,
       cloudGistId: null,
       cloudUpdatedAt: null,
       cloudProjectName: null,
