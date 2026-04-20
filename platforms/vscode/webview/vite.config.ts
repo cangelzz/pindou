@@ -2,9 +2,15 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { readFileSync } from "fs";
+
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"));
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    __PINDOU_VERSION__: JSON.stringify(`vscode-${pkg.version}`),
+  },
   root: path.resolve(__dirname),
   build: {
     outDir: path.resolve(__dirname, "../dist/webview"),

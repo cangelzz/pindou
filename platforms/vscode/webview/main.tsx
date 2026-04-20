@@ -7,9 +7,13 @@ import { useEditorStore } from "../../../src/store/editorStore";
 import { setGitHubToken, clearGitHubToken } from "../../../src/utils/llmVoice";
 import "./styles.css";
 
+declare const __PINDOU_VERSION__: string;
+
 // Initialize VS Code adapter
 const adapter = new VScodeAdapter();
 setAdapter(adapter);
+
+(window as any).__pindouVersion = __PINDOU_VERSION__;
 
 // Provide VS Code-native GitHub login for the app's "登录 GitHub" button.
 // App.tsx checks for this function and uses it instead of the Tauri device code flow.

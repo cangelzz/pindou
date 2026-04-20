@@ -442,6 +442,26 @@ function App() {
             登录 GitHub
           </button>
         )}
+        <button
+          onClick={() => {
+            const platform = navigator.userAgent.includes("Windows") ? "Windows"
+              : navigator.userAgent.includes("Mac") ? "macOS"
+              : navigator.userAgent.includes("Linux") ? "Linux" : "Unknown";
+            const appVersion = (window as any).__pindouVersion || "dev";
+            const isVSCode = typeof (window as any).acquireVsCodeApi === "function"
+              || document.body.dataset.vscodeContext !== undefined;
+            const env = isVSCode ? "VS Code Extension" : "Desktop (Tauri)";
+            const canvas = `${canvasSize.width}x${canvasSize.height}`;
+            const body = encodeURIComponent(
+              `**描述问题**\n\n\n**复现步骤**\n1. \n2. \n3. \n\n**环境信息**\n- 版本: ${appVersion}\n- 平台: ${platform}\n- 运行环境: ${env}\n- 画布: ${canvas}\n`
+            );
+            const url = `https://github.com/cangelzz/pindouverse/issues/new?body=${body}`;
+            import("@tauri-apps/plugin-shell").then(({ open }) => open(url)).catch(() => window.open(url, "_blank"));
+          }}
+          className="px-2 py-1 rounded hover:bg-gray-200 text-gray-400 text-xs"
+        >
+          反馈
+        </button>
       </div>
 
       {/* Main content */}
@@ -1180,15 +1200,6 @@ function App() {
             {lastSavedAt}
           </span>
         )}
-        <button
-          onClick={() => {
-            const url = "https://github.com/cangelzz/pindouverse/issues/new";
-            import("@tauri-apps/plugin-shell").then(({ open }) => open(url)).catch(() => window.open(url, "_blank"));
-          }}
-          className="text-[10px] text-gray-400 hover:text-blue-500"
-        >
-          反馈
-        </button>
       </div>
       {showBetaSettings && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
