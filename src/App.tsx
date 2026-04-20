@@ -1180,9 +1180,16 @@ function App() {
             {lastSavedAt}
           </span>
         )}
+        <button
+          onClick={() => {
+            const url = "https://github.com/cangelzz/pindouverse/issues/new";
+            import("@tauri-apps/plugin-shell").then(({ open }) => open(url)).catch(() => window.open(url, "_blank"));
+          }}
+          className="text-[10px] text-gray-400 hover:text-blue-500"
+        >
+          反馈
+        </button>
       </div>
-
-      {/* Beta Features Settings Dialog */}
       {showBetaSettings && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[320px] p-4">
