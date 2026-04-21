@@ -21513,10 +21513,10 @@
     "startY": 1,
     "visible": true,
     "lineColor": "rgba(0,0,0,0.15)",
-    "lineWidth": 1.0,
+    "lineWidth": 1,
     "groupLineColor": "rgba(0,0,0,0.5)",
-    "groupLineWidth": 2.0
+    "groupLineWidth": 2
   },
-  "createdAt": "自动备份 8:06:24 PM",
-  "updatedAt": "2026-04-19T12:15:19.244Z"
+  "createdAt": "2026-04-19T14:45:32.510Z",
+  "updatedAt": "2026-04-19T14:45:32.510Z"
 }
