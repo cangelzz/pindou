@@ -76,6 +76,11 @@ export function PixelCanvas() {
   const [resizeCount, setResizeCount] = useState(0);
   const [containerDims, setContainerDims] = useState({ w: 0, h: 0 });
 
+  // Changes overlay
+  const baselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
+  const [showChanges, setShowChanges] = useState(false);
+  const changesCanvasRef = useRef<HTMLCanvasElement>(null);
+
   // Preview thumbnail
   const [showThumbnail, setShowThumbnail] = useState(false);
 
@@ -261,6 +266,8 @@ export function PixelCanvas() {
     const canvases = [pc, rc, gc, ac];
     const selc = selectionCanvasRef.current;
     if (selc) canvases.push(selc);
+    const chc = changesCanvasRef.current;
+    if (chc) canvases.push(chc);
 
     // Skip if size hasn't actually changed (avoids clearing canvas content)
     if (pc.width === targetW && pc.height === targetH) return;
@@ -501,6 +508,55 @@ export function PixelCanvas() {
       }
     }
   }, [selection, selectionBounds, floatingSelectionState, cellSize, offsetX, offsetY, antOffset, resizeCount]);
+
+  // Render changes overlay
+  useEffect(() => {
+    const canvas = changesCanvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx || !containerRef.current) return;
+    const w = containerRef.current.clientWidth;
+    const h = containerRef.current.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!showChanges || !baselineCanvasData) return;
+
+    const rows = canvasData.length;
+    const cols = rows > 0 ? canvasData[0].length : 0;
+    const startCol = Math.max(0, Math.floor(-offsetX / cellSize));
+    const startRow = Math.max(0, Math.floor(-offsetY / cellSize));
+    const endCol = Math.min(cols, Math.ceil((w - offsetX) / cellSize));
+    const endRow = Math.min(rows, Math.ceil((h - offsetY) / cellSize));
+
+    for (let row = startRow; row < endRow; row++) {
+      for (let col = startCol; col < endCol; col++) {
+        const base = baselineCanvasData[row]?.[col]?.colorIndex ?? null;
+        const curr = canvasData[row]?.[col]?.colorIndex ?? null;
+        const x = col * cellSize + offsetX;
+        const y = row * cellSize + offsetY;
+
+        if (base === curr) {
+          ctx.fillStyle = "rgba(255,255,255,0.5)";
+          ctx.fillRect(x, y, cellSize, cellSize);
+        } else if (base === null) {
+          ctx.strokeStyle = "rgba(34,197,94,0.8)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+        } else if (curr === null) {
+          ctx.strokeStyle = "rgba(239,68,68,0.8)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+          ctx.beginPath();
+          ctx.moveTo(x + 1, y + 1);
+          ctx.lineTo(x + cellSize - 1, y + cellSize - 1);
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = "rgba(249,115,22,0.8)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, cellSize - 2, cellSize - 2);
+        }
+      }
+    }
+  }, [showChanges, baselineCanvasData, canvasData, cellSize, offsetX, offsetY, resizeCount]);
 
   // Render shape preview overlay
   useEffect(() => {
@@ -1131,6 +1187,15 @@ export function PixelCanvas() {
         >
           🖼️ 预览
         </button>
+        {baselineCanvasData && (
+          <button
+            onClick={() => setShowChanges(!showChanges)}
+            className={`px-1.5 py-0.5 rounded text-[10px] ${showChanges ? "bg-orange-100 text-orange-600" : "hover:bg-gray-200"}`}
+            title={showChanges ? "关闭变更高亮" : "显示变更高亮"}
+          >
+            变更
+          </button>
+        )}
       </div>
 
       {/* Canvas area */}
@@ -1167,6 +1232,7 @@ export function PixelCanvas() {
         <canvas ref={shapeCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={selectionCanvasRef} className="absolute inset-0 pointer-events-none" />
         <canvas ref={axisCanvasRef} className="absolute inset-0 pointer-events-none" />
+        <canvas ref={changesCanvasRef} className="absolute inset-0 pointer-events-none" />
         {showThumbnail && containerDims.w > 0 && (
           <PreviewThumbnail
             containerWidth={containerDims.w}

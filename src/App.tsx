@@ -8,6 +8,7 @@ import { BlueprintImportDialog } from "./components/Import/BlueprintImportDialog
 import { ExportDialog } from "./components/Export/ExportDialog";
 import { CloudDialog } from "./components/Cloud/CloudDialog";
 import { ProjectInfoDialog } from "./components/ProjectInfo/ProjectInfoDialog";
+import { ChangesCompareDialog } from "./components/Canvas/ChangesCompareDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
@@ -44,6 +45,7 @@ function App() {
   const [showResize, setShowResize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showProjectInfo, setShowProjectInfo] = useState(false);
+  const [showChangesCompare, setShowChangesCompare] = useState(false);
   const [showCloud, setShowCloud] = useState(false);
   const [resizeW, setResizeW] = useState(52);
   const [resizeH, setResizeH] = useState(52);
@@ -68,6 +70,7 @@ function App() {
   const cloudGistId = useEditorStore((s) => s.cloudGistId);
   const projectPath = useEditorStore((s) => s.projectPath);
   const projectInfo = useEditorStore((s) => s.projectInfo);
+  const baselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
@@ -371,6 +374,15 @@ function App() {
         >
           历史记录
         </button>
+        {baselineCanvasData && (
+          <button
+            onClick={() => setShowChangesCompare(true)}
+            className="px-2 py-1 rounded hover:bg-gray-200"
+            title="对比变更"
+          >
+            对比
+          </button>
+        )}
         {isLoggedIn && (
           <>
             <button
@@ -762,6 +774,7 @@ function App() {
       {showImport && <ImageImportDialog onClose={() => setShowImport(false)} />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
       {showProjectInfo && <ProjectInfoDialog onClose={() => setShowProjectInfo(false)} />}
+      {showChangesCompare && <ChangesCompareDialog onClose={() => setShowChangesCompare(false)} />}
 
       {/* Blueprint Import Progress Modal */}
       {blueprintImporting && (

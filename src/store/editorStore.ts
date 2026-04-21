@@ -59,6 +59,7 @@ interface EditorState {
   projectPath: string | null;
   isDirty: boolean;
   importedFileName: string | null;
+  baselineCanvasData: CanvasData | null;
   projectInfo: ProjectInfo | undefined;
 
   // Cloud sync
@@ -285,6 +286,10 @@ const MAX_HISTORY = 200;
 
 let _strokeStartIdx = -1;
 
+function cloneCanvasData(data: CanvasData): CanvasData {
+  return data.map(row => row.map(cell => ({ ...cell })));
+}
+
 function buildProjectFile(state: EditorState): ProjectFile {
   const now = new Date().toISOString();
   return {
@@ -336,6 +341,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   projectPath: null,
   isDirty: false,
+  baselineCanvasData: null,
   importedFileName: null,
   projectInfo: undefined,
   cloudGistId: null,
@@ -376,6 +382,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       projectPath: null,
       projectInfo: undefined,
       importedFileName: null,
+      baselineCanvasData: null,
       refImagePixels: null,
       refImageWidth: 0,
       refImageHeight: 0,
@@ -973,7 +980,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const project = buildProjectFile(state);
     await adapter.saveProject(path, project);
     const now = new Date().toLocaleTimeString();
-    set({ projectPath: path, isDirty: false, lastSavedAt: now });
+    set({ projectPath: path, isDirty: false, lastSavedAt: now, baselineCanvasData: cloneCanvasData(state.canvasData) });
   },
 
   saveProjectAs: async () => {
@@ -987,7 +994,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const project = buildProjectFile(state);
     await adapter.saveProject(selected, project);
     const now = new Date().toLocaleTimeString();
-    set({ projectPath: selected, isDirty: false, lastSavedAt: now });
+    set({ projectPath: selected, isDirty: false, lastSavedAt: now, baselineCanvasData: cloneCanvasData(state.canvasData) });
   },
 
   openProject: async () => {
@@ -1009,6 +1016,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeLayerId: layer.id,
       projectPath: selected as string,
       projectInfo: project.projectInfo,
+      baselineCanvasData: cloneCanvasData(project.canvasData),
       undoStack: [],
       redoStack: [],
       isDirty: false,
