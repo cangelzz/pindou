@@ -13,8 +13,67 @@ import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
 import type { BlueprintImportResult } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
-import { getEffectiveColor } from "./utils/colorHelper";
+import { getEffectiveColor, getEffectiveHex, type ColorOverrideMap } from "./utils/colorHelper";
 import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
+import type { HistoryAction, HistoryEntry } from "./types";
+
+/** Render a small color swatch (or hatched empty marker for null) */
+function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; overrides: ColorOverrideMap }) {
+  if (colorIndex === null) {
+    return (
+      <span
+        className="inline-block w-3 h-3 rounded-sm border border-gray-300 align-middle"
+        style={{
+          backgroundImage:
+            "linear-gradient(45deg, #ddd 25%, transparent 25%, transparent 75%, #ddd 75%), linear-gradient(45deg, #ddd 25%, transparent 25%, transparent 75%, #ddd 75%)",
+          backgroundSize: "6px 6px",
+          backgroundPosition: "0 0, 3px 3px",
+        }}
+        title="空"
+      />
+    );
+  }
+  const hex = getEffectiveHex(colorIndex, overrides);
+  const code = MARD_COLORS[colorIndex]?.code ?? "?";
+  return (
+    <span
+      className="inline-block w-3 h-3 rounded-sm border border-gray-300 align-middle"
+      style={{ backgroundColor: hex }}
+      title={code}
+    />
+  );
+}
+
+/** Render the inline summary of a history action (1-pixel: from→to + pos; many: count) */
+function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap) {
+  if (action.length === 1) {
+    const e = action[0];
+    return (
+      <span className="flex items-center gap-1 min-w-0">
+        <ColorSwatch colorIndex={e.prevColorIndex} overrides={overrides} />
+        <span className="text-[10px] text-gray-400">→</span>
+        <ColorSwatch colorIndex={e.newColorIndex} overrides={overrides} />
+        <span className="text-[10px] text-gray-400 ml-1">@({e.col + 1},{e.row + 1})</span>
+      </span>
+    );
+  }
+  return <span>{action.length} 个像素变更</span>;
+}
+
+/** Verbose tooltip text describing an action */
+function describeAction(action: HistoryAction, overrides: ColorOverrideMap): string {
+  const label = (idx: number | null) => {
+    if (idx === null) return "空";
+    const c = MARD_COLORS[idx];
+    if (!c) return "?";
+    const ov = overrides.get(idx);
+    return ov ? `${c.code}(${ov.hex})` : `${c.code} ${c.name}`;
+  };
+  const fmt = (e: HistoryEntry) => `(${e.col + 1},${e.row + 1}) ${label(e.prevColorIndex)} → ${label(e.newColorIndex)}`;
+  if (action.length <= 5) return action.map(fmt).join("\n");
+  const head = action.slice(0, 5).map(fmt).join("\n");
+  return `${head}\n... 共 ${action.length} 个像素变更`;
+}
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
 function rgbaToHex(rgba: string): string {
@@ -1094,9 +1153,10 @@ function App() {
                           for (let s = 0; s < stepsForward; s++) redo();
                         }}
                         className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-blue-50 text-gray-400"
+                        title={describeAction(action, colorOverrides)}
                       >
                         <span className="w-5 text-center text-[10px]">↪</span>
-                        <span>{action.length} 个像素变更</span>
+                        {renderActionSummary(action, colorOverrides)}
                       </button>
                     );
                   })}
@@ -1118,9 +1178,10 @@ function App() {
                           setShowHistory(false);
                         }}
                         className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-orange-50 text-gray-600"
+                        title={describeAction(action, colorOverrides)}
                       >
                         <span className="w-5 text-center text-[10px]">↩</span>
-                        <span>{action.length} 个像素变更</span>
+                        {renderActionSummary(action, colorOverrides)}
                         <span className="text-gray-400 ml-auto text-[10px]">-{stepsBack}步</span>
                       </button>
                     );
