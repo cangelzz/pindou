@@ -615,16 +615,23 @@ export function PixelCanvas() {
     const fontSize = Math.max(8, Math.min(cellSize * 0.4, 14));
     ctx.font = `bold ${fontSize}px monospace`;
     const labelH = fontSize + 4;
+    const labelW = Math.max(fontSize * 2.5, 24);
 
     // Column numbers along top edge (only for grid area, skip edge padding cells)
     const startCol = Math.max(edgePadding, Math.floor(-offsetX / cellSize));
     const endCol = Math.min(canvasSize.width - edgePadding, Math.ceil((w - offsetX) / cellSize));
 
-    // Background bar for column labels
+    // Background bar for column labels (top)
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillRect(0, 0, w, labelH);
     ctx.fillStyle = "rgba(0,0,0,0.08)";
     ctx.fillRect(0, labelH - 1, w, 1);
+
+    // Background bar for column labels (bottom)
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(0, h - labelH, w, labelH);
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(0, h - labelH, w, 1);
 
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -633,34 +640,46 @@ export function PixelCanvas() {
     for (let col = startCol; col < endCol; col++) {
       const x = col * cellSize + offsetX + cellSize / 2;
       if (x > 0 && x < w) {
-        ctx.fillText(`${col - edgePadding + startX}`, x, labelH / 2);
+        const label = `${col - edgePadding + startX}`;
+        ctx.fillText(label, x, labelH / 2);
+        ctx.fillText(label, x, h - labelH / 2);
       }
     }
 
-    // Row numbers along left edge (only for grid area, skip edge padding cells)
+    // Row numbers along left/right edges (only for grid area, skip edge padding cells)
     const startRow = Math.max(edgePadding, Math.floor(-offsetY / cellSize));
     const endRow = Math.min(canvasSize.height - edgePadding, Math.ceil((h - offsetY) / cellSize));
-    const labelW = Math.max(fontSize * 2.5, 24);
 
-    // Background bar for row labels
+    // Background bar for row labels (left)
     ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillRect(0, labelH, labelW, h - labelH);
+    ctx.fillRect(0, labelH, labelW, h - labelH * 2);
     ctx.fillStyle = "rgba(0,0,0,0.08)";
-    ctx.fillRect(labelW - 1, labelH, 1, h - labelH);
+    ctx.fillRect(labelW - 1, labelH, 1, h - labelH * 2);
+
+    // Background bar for row labels (right)
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(w - labelW, labelH, labelW, h - labelH * 2);
+    ctx.fillStyle = "rgba(0,0,0,0.08)";
+    ctx.fillRect(w - labelW, labelH, 1, h - labelH * 2);
 
     ctx.textAlign = "center";
     ctx.fillStyle = "rgba(80,80,80,0.9)";
 
     for (let row = startRow; row < endRow; row++) {
       const y = row * cellSize + offsetY + cellSize / 2;
-      if (y > labelH && y < h) {
-        ctx.fillText(`${row - edgePadding + startY}`, labelW / 2, y);
+      if (y > labelH && y < h - labelH) {
+        const label = `${row - edgePadding + startY}`;
+        ctx.fillText(label, labelW / 2, y);
+        ctx.fillText(label, w - labelW / 2, y);
       }
     }
 
-    // Corner box
+    // Corner boxes (4 corners)
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillRect(0, 0, labelW, labelH);
+    ctx.fillRect(w - labelW, 0, labelW, labelH);
+    ctx.fillRect(0, h - labelH, labelW, labelH);
+    ctx.fillRect(w - labelW, h - labelH, labelW, labelH);
   }, [blueprintMode, canvasSize, cellSize, offsetX, offsetY, gridConfig, resizeCount]);
 
   // Convert screen position to cell coordinates
