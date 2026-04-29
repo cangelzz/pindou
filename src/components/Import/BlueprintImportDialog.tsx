@@ -1,5 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import { MARD_COLORS } from "../../data/mard221";
+import { useEditorStore } from "../../store/editorStore";
+import { getEffectiveRgb } from "../../utils/colorHelper";
 import type { BlueprintImportResult, CellResult } from "../../adapters";
 
 // ─── Helper: text contrast color ────────────────────────────────
@@ -39,22 +41,24 @@ export function BlueprintImportDialog({
   const [selectedCell, setSelectedCell] = useState<[number, number] | null>(null);
   const [zoom, setZoom] = useState(1.0);
   const gridRef = useRef<HTMLDivElement>(null);
+  const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
   // Drag-to-pan state
   const isDragging = useRef(false);
   const didDrag = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
 
-  // Color lookup from MARD palette
+  // Color lookup from MARD palette (using user color overrides if any)
   const codeToColor = useMemo(() => {
     const map = new Map<string, { r: number; g: number; b: number; name: string }>();
-    for (const c of MARD_COLORS) {
+    MARD_COLORS.forEach((c, i) => {
       if (c.rgb) {
-        map.set(c.code, { r: c.rgb[0], g: c.rgb[1], b: c.rgb[2], name: c.name });
+        const [r, g, b] = getEffectiveRgb(i, colorOverrides);
+        map.set(c.code, { r, g, b, name: c.name });
       }
-    }
+    });
     return map;
-  }, []);
+  }, [colorOverrides]);
 
   // Cell size for rendering — base size adjusted by zoom
   const baseCellPx = result.width > 60 ? 18 : result.width > 30 ? 22 : 28;

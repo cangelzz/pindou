@@ -4,23 +4,31 @@ import { rgbToLab, deltaE76, euclideanRGB, type Lab } from "./colorConversion";
 import { getEffectiveColor, type ColorOverrideMap } from "./colorHelper";
 
 let labCache: Lab[] | null = null;
-let labCacheOverrides: ColorOverrideMap | null = null;
+let labCacheKey: string | null = null;
+
+function overridesKey(ov: ColorOverrideMap | undefined): string {
+  if (!ov || ov.size === 0) return "";
+  const entries: string[] = [];
+  for (const [i, v] of ov) entries.push(`${i}:${v.hex}`);
+  entries.sort();
+  return entries.join("|");
+}
 
 function getLabCache(overrides?: ColorOverrideMap): Lab[] {
-  const ov = overrides || new Map();
-  if (labCache && labCacheOverrides === ov) return labCache;
+  const key = overridesKey(overrides);
+  if (labCache && labCacheKey === key) return labCache;
   labCache = MARD_COLORS.map((_, i) => {
-    const c = getEffectiveColor(i, ov);
+    const c = getEffectiveColor(i, overrides || new Map());
     if (!c.rgb) return [0, 0, 0] as Lab;
     return rgbToLab(c.rgb[0], c.rgb[1], c.rgb[2]);
   });
-  labCacheOverrides = ov;
+  labCacheKey = key;
   return labCache;
 }
 
 export function invalidateLabCache(): void {
   labCache = null;
-  labCacheOverrides = null;
+  labCacheKey = null;
 }
 
 export function findClosestColor(
@@ -73,7 +81,8 @@ export function findClosestColor(
 export function matchImageToMard(
   pixels: Uint8Array | number[],
   algorithm: ColorMatchAlgorithm,
-  groupId: string = "mard221"
+  groupId: string = "mard221",
+  colorOverrides?: ColorOverrideMap,
 ): number[] {
   const result: number[] = [];
   const cache = new Map<string, number>();
@@ -87,7 +96,7 @@ export function matchImageToMard(
 
     let idx = cache.get(key);
     if (idx === undefined) {
-      idx = findClosestColor(r, g, b, algorithm, allowedIndices);
+      idx = findClosestColor(r, g, b, algorithm, allowedIndices, colorOverrides);
       cache.set(key, idx);
     }
     result.push(idx);

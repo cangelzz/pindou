@@ -584,7 +584,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       const adapter = getAdapter();
       const data = await adapter.importImage(filePath, maxDimension, crop, sharpEdge, widthRatio !== 1.0 ? widthRatio : undefined);
 
-      let matched = matchImageToMard(data.pixels, algorithm, colorGroupId);
+      let matched = matchImageToMard(data.pixels, algorithm, colorGroupId, colorOverrides);
       setMatchedPreview(matched);
       setRawPixels(data.pixels as number[]);
       setActualSize({ width: data.width, height: data.height });
@@ -614,7 +614,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       const results: CompareItem[] = [];
 
       for (const { algo, label } of algos) {
-        const matched = matchImageToMard(data.pixels, algo, colorGroupId);
+        const matched = matchImageToMard(data.pixels, algo, colorGroupId, colorOverrides);
         results.push({ label, algo, indices: matched });
       }
 
