@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.3
+
+- Fix: exported blueprint PNG now includes the bead-count legend below the grid (two sections: by count, by code) — matches the desktop app output
+
 ## 0.8.2
 
 - Fix: preview image (效果图) now exports correctly in VS Code (was throwing "not yet supported")

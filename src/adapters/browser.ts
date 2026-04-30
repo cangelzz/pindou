@@ -12,6 +12,7 @@ import type {
   ImportMode,
 } from "./index";
 import type { ProjectFile } from "../types";
+import { computeLegendLayout, drawLegend } from "../utils/blueprintLegend";
 
 const DB_NAME = "pindouverse";
 const DB_VERSION = 1;
@@ -263,13 +264,15 @@ export class BrowserAdapter implements PlatformAdapter {
   async exportImage(request: ExportImageRequest): Promise<void> {
     const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding } = request;
     const cw = width * cell_size;
-    const ch = height * cell_size;
+    const gridAreaH = height * cell_size;
+    const legend = computeLegendLayout(cells as any, width, cell_size);
+    const ch = gridAreaH + legend.totalHeight;
     const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
     const ctx = canvas.getContext("2d")!;
 
-    // White background
+    // White background (covers grid + legend)
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, cw, ch);
 
@@ -290,7 +293,7 @@ export class BrowserAdapter implements PlatformAdapter {
     for (let col = 0; col <= width; col++) {
       ctx.beginPath();
       ctx.moveTo(col * cell_size, 0);
-      ctx.lineTo(col * cell_size, ch);
+      ctx.lineTo(col * cell_size, gridAreaH);
       ctx.stroke();
     }
     for (let row = 0; row <= height; row++) {
@@ -346,6 +349,9 @@ export class BrowserAdapter implements PlatformAdapter {
     for (let row = edge_padding; row < height - edge_padding; row++) {
       ctx.fillText(`${row - edge_padding + start_y}`, edge_padding * cell_size / 2 || axisFont, row * cell_size + cell_size / 2);
     }
+
+    // Bead-count legend below grid (matches Tauri output)
+    drawLegend(ctx, legend, cell_size, cell_size, gridAreaH);
 
     const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
     const ext = format === "jpeg" ? "jpg" : "png";

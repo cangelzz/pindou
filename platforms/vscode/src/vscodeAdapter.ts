@@ -16,6 +16,7 @@ import type {
   ImportMode,
 } from "../../../src/adapters";
 import type { ProjectFile } from "../../../src/types";
+import { computeLegendLayout, drawLegend } from "../../../src/utils/blueprintLegend";
 
 // VS Code webview API
 declare function acquireVsCodeApi(): {
@@ -157,13 +158,15 @@ export class VScodeAdapter implements PlatformAdapter {
     const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding } = request;
 
     const imgW = width * cell_size;
-    const imgH = height * cell_size;
+    const gridAreaH = height * cell_size;
+    const legend = computeLegendLayout(cells as any, width, cell_size);
+    const imgH = gridAreaH + legend.totalHeight;
     const canvas = document.createElement("canvas");
     canvas.width = imgW;
     canvas.height = imgH;
     const ctx = canvas.getContext("2d")!;
 
-    // Fill background white
+    // Fill background white (covers grid + legend)
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, imgW, imgH);
 
@@ -226,6 +229,9 @@ export class VScodeAdapter implements PlatformAdapter {
     for (let row = edge_padding; row < height - edge_padding; row += groupSize) {
       ctx.fillText(String(row - edge_padding + start_y), edge_padding > 0 ? (edge_padding * cell_size) / 2 : -labelSize, (row + groupSize / 2) * cell_size);
     }
+
+    // Bead-count legend below grid (matches Tauri output)
+    drawLegend(ctx, legend, cell_size, cell_size, gridAreaH);
 
     // Export to blob and save via extension host
     const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
