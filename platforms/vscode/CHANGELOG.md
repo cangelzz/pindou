@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2
+
+- Fix: preview image (效果图) now exports correctly in VS Code (was throwing "not yet supported")
+- Fix: export dialog now closes after export, even if one of multiple files fails
+- Improvement: per-file error reporting — one failed export no longer skips the others; success alert lists exactly which files saved and which failed
+- Image import: regular image-to-pindou matching now respects user color overrides (was ignoring adjusted colors)
+- Blueprint import preview: cells in the preview dialog now render with overridden colors (matched code was already correct)
+- Internal: fix lab cache identity-comparison bug that could return stale results when overrides changed
+
 ## 0.8.1
 
 - History dialog: show from→to color swatches and position for single-pixel changes; verbose tooltip for batch actions

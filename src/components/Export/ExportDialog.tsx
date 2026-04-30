@@ -65,35 +65,47 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     try {
       const cells = buildCells();
       const results: string[] = [];
+      const errors: string[] = [];
+
+      const tryExport = async (label: string, fn: () => Promise<void>) => {
+        try {
+          await fn();
+          results.push(label);
+        } catch (e) {
+          errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      };
 
       if (exportBlueprint && blueprintPath) {
-        await adapter.exportImage({
-          width: canvasSize.width,
-          height: canvasSize.height,
-          cell_size: cellSize,
-          cells,
-          output_path: blueprintPath,
-          format,
-          start_x: gridConfig.startX,
-          start_y: gridConfig.startY,
-          edge_padding: gridConfig.edgePadding,
-        });
-        results.push(`图纸: ${blueprintPath}`);
-
-        if (exportMirror) {
-          const mirrorPath = blueprintPath.replace(/\.([^.]+)$/, "_mirror.$1");
-          await adapter.exportImage({
+        await tryExport(`图纸: ${blueprintPath}`, () =>
+          adapter.exportImage({
             width: canvasSize.width,
             height: canvasSize.height,
             cell_size: cellSize,
-            cells: mirrorCells(cells),
-            output_path: mirrorPath,
+            cells,
+            output_path: blueprintPath!,
             format,
             start_x: gridConfig.startX,
             start_y: gridConfig.startY,
             edge_padding: gridConfig.edgePadding,
-          });
-          results.push(`镜像图纸: ${mirrorPath}`);
+          }),
+        );
+
+        if (exportMirror) {
+          const mirrorPath = blueprintPath.replace(/\.([^.]+)$/, "_mirror.$1");
+          await tryExport(`镜像图纸: ${mirrorPath}`, () =>
+            adapter.exportImage({
+              width: canvasSize.width,
+              height: canvasSize.height,
+              cell_size: cellSize,
+              cells: mirrorCells(cells),
+              output_path: mirrorPath,
+              format,
+              start_x: gridConfig.startX,
+              start_y: gridConfig.startY,
+              edge_padding: gridConfig.edgePadding,
+            }),
+          );
         }
       }
 
@@ -113,32 +125,37 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           previewPath = selected;
         }
 
-        await adapter.exportPreview({
-          width: canvasSize.width,
-          height: canvasSize.height,
-          pixel_size: cellSize,
-          cells,
-          output_path: previewPath,
-        });
-        results.push(`效果图: ${previewPath}`);
-
-        if (exportMirror) {
-          const mirrorPreviewPath = previewPath.replace(/\.([^.]+)$/, "_mirror.$1");
-          await adapter.exportPreview({
+        await tryExport(`效果图: ${previewPath}`, () =>
+          adapter.exportPreview({
             width: canvasSize.width,
             height: canvasSize.height,
             pixel_size: cellSize,
-            cells: mirrorCells(cells),
-            output_path: mirrorPreviewPath,
-          });
-          results.push(`镜像效果图: ${mirrorPreviewPath}`);
+            cells,
+            output_path: previewPath,
+          }),
+        );
+
+        if (exportMirror) {
+          const mirrorPreviewPath = previewPath.replace(/\.([^.]+)$/, "_mirror.$1");
+          await tryExport(`镜像效果图: ${mirrorPreviewPath}`, () =>
+            adapter.exportPreview({
+              width: canvasSize.width,
+              height: canvasSize.height,
+              pixel_size: cellSize,
+              cells: mirrorCells(cells),
+              output_path: mirrorPreviewPath,
+            }),
+          );
         }
       }
 
-      alert(`导出成功:\n${results.join("\n")}`);
+      const successMsg = results.length ? `导出成功:\n${results.join("\n")}` : "";
+      const errorMsg = errors.length ? `\n\n以下项目失败:\n${errors.join("\n")}` : "";
+      alert(`${successMsg}${errorMsg}`.trim() || "未导出任何文件");
       onClose();
     } catch (e) {
       alert(`导出失败: ${e}`);
+      onClose();
     } finally {
       setIsExporting(false);
     }

@@ -234,8 +234,30 @@ export class VScodeAdapter implements PlatformAdapter {
     await sendRequest("writeFile", { path: output_path, data: base64 });
   }
 
-  async exportPreview(_request: ExportPreviewRequest): Promise<void> {
-    throw new Error("Export preview not yet supported in VS Code extension.");
+  async exportPreview(request: ExportPreviewRequest): Promise<void> {
+    const { width, height, pixel_size, cells, output_path } = request;
+    const cw = width * pixel_size;
+    const ch = height * pixel_size;
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d")!;
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, cw, ch);
+
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const cell = cells[row]?.[col];
+        if (!cell) continue;
+        ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
+        ctx.fillRect(col * pixel_size, row * pixel_size, pixel_size, pixel_size);
+      }
+    }
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const base64 = dataUrl.split(",")[1];
+    await sendRequest("writeFile", { path: output_path, data: base64 });
   }
 
   async importBlueprint(_path: string, _palette: PaletteColor[], _gridWidth?: number, _gridHeight?: number, _mode?: ImportMode): Promise<BlueprintImportResult> {
