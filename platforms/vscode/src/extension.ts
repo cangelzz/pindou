@@ -78,12 +78,22 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     // Set webview HTML
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
+    // Detect "New Project" temp files: they live under globalStorageUri and are
+    // named untitled_<timestamp>.pindou. For these, the webview should treat
+    // the project as having no real path so Save will prompt for a destination
+    // (instead of silently overwriting the temp file).
+    const tmpDirPath = this.context.globalStorageUri.fsPath;
+    const isUntitled =
+      document.uri.fsPath.startsWith(tmpDirPath) &&
+      /[\\/]untitled_\d+\.pindou$/i.test(document.uri.fsPath);
+
     // Send initial document content to webview
     const sendDocument = () => {
       webviewPanel.webview.postMessage({
         type: "loadDocument",
         content: document.getText(),
         path: document.uri.fsPath,
+        isUntitled,
       });
     };
 

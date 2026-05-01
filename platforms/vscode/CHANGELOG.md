@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.6
+
+- Fix: "PindouVerse: New Project" no longer leaks the internal temp filename into the project. Save now correctly prompts for a destination instead of silently overwriting the untitled temp file (untitled_<timestamp>.pindou under the extension's globalStorage)
+
 ## 0.8.5
 
 - Fix: "另存为" (Save As) now actually writes to the chosen path and switches the active editor to the new file (previously it ignored the new path, silently saved over the original file, and left the editor on the old document)

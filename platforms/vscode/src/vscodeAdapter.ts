@@ -138,7 +138,7 @@ let onDocumentLoad: ((content: string, path: string) => void) | null = null;
 // Track content we just saved, so we can ignore the echo from extension host
 let lastSavedContent: string | null = null;
 
-export function setDocumentLoadHandler(handler: (content: string, path: string) => void) {
+export function setDocumentLoadHandler(handler: (content: string, path: string, isUntitled: boolean) => void) {
   onDocumentLoad = handler;
 }
 
@@ -154,7 +154,7 @@ window.addEventListener("message", (event) => {
     }
     lastSavedContent = null;
     if (onDocumentLoad) {
-      onDocumentLoad(msg.content, msg.path);
+      onDocumentLoad(msg.content, msg.path, !!msg.isUntitled);
     }
   }
 });
