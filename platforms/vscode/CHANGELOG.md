@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.4
+
+- Fix: image import in VS Code now actually works — file picker opens preview, original size is shown, 🔍 auto-detect grid button appears, and the "预览" / "对比多种组合" buttons produce results (previously all silently failed because previewImage/importImage threw "not yet supported")
+- Image is read once via the extension host (`vscode.workspace.fs.readFile`) and decoded in the webview via a `data:` URL + Canvas — same pixel pipeline as the browser adapter, including width-compensation (`widthRatio`)
+
 ## 0.8.3
 
 - Fix: exported blueprint PNG now includes the bead-count legend below the grid (two sections: by count, by code) — matches the desktop app output
