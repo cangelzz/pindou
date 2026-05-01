@@ -188,10 +188,17 @@ export class VScodeAdapter implements PlatformAdapter {
     return result.path || null;
   }
 
-  async saveProject(_path: string, project: ProjectFile): Promise<void> {
+  async saveProject(path: string, project: ProjectFile): Promise<void> {
     const content = JSON.stringify(project, null, 2);
-    lastSavedContent = content;
-    vscode.postMessage({ type: "save", content });
+    // If a path was supplied that differs from the active document, this is
+    // "Save As": write to the new file and re-open it in the custom editor.
+    // Otherwise (no path or same path), do an in-place save of the active doc.
+    if (path && path !== currentDocPath) {
+      await sendRequest("saveAs", { path, content });
+    } else {
+      lastSavedContent = content;
+      vscode.postMessage({ type: "save", content });
+    }
   }
 
   async loadProject(_path: string): Promise<ProjectFile> {

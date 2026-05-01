@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.5
+
+- Fix: "另存为" (Save As) now actually writes to the chosen path and switches the active editor to the new file (previously it ignored the new path, silently saved over the original file, and left the editor on the old document)
+
 ## 0.8.4
 
 - Fix: image import in VS Code now actually works — file picker opens preview, original size is shown, 🔍 auto-detect grid button appears, and the "预览" / "对比多种组合" buttons produce results (previously all silently failed because previewImage/importImage threw "not yet supported")

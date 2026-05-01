@@ -118,6 +118,38 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
           break;
         }
 
+        case "saveAs": {
+          // Write content to the new path, then re-open it in our custom editor.
+          // The current webview panel is disposed so the new editor takes over.
+          try {
+            const newUri = vscode.Uri.file(msg.path);
+            await vscode.workspace.fs.writeFile(
+              newUri,
+              Buffer.from(msg.content, "utf8")
+            );
+            webviewPanel.webview.postMessage({
+              type: "fileResult",
+              requestId: msg.requestId,
+              success: true,
+            });
+            // Open the freshly saved file in the custom editor (replaces this panel)
+            await vscode.commands.executeCommand(
+              "vscode.openWith",
+              newUri,
+              "pindouverse.editor"
+            );
+            webviewPanel.dispose();
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({
+              type: "fileResult",
+              requestId: msg.requestId,
+              success: false,
+              error: e.message,
+            });
+          }
+          break;
+        }
+
         case "showSaveDialog": {
           const filters: Record<string, string[]> = {};
           for (const f of msg.filters || []) {
