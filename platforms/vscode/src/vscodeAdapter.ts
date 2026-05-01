@@ -51,6 +51,87 @@ function sendRequest(type: string, data: Record<string, any> = {}): Promise<any>
   });
 }
 
+// ─── Image helpers (Canvas-based, mirrors browser adapter) ──────
+
+/** Map a file extension to a MIME type for data: URLs */
+function extToMime(path: string): string {
+  const ext = path.toLowerCase().split(".").pop() ?? "";
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "bmp":
+      return "image/bmp";
+    case "webp":
+      return "image/webp";
+    case "png":
+    default:
+      return "image/png";
+  }
+}
+
+/** Load an image element from a data URL */
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode image"));
+    img.src = dataUrl;
+  });
+}
+
+/** Cache last decoded image so previewImage + importImage share work */
+let _cachedImagePath: string | null = null;
+let _cachedImage: HTMLImageElement | null = null;
+
+async function getImageElement(path: string): Promise<HTMLImageElement> {
+  if (_cachedImagePath === path && _cachedImage) return _cachedImage;
+  const result = await sendRequest("readFile", { path });
+  if (!result.data) throw new Error(result.error || "Failed to read image file");
+  const dataUrl = `data:${extToMime(path)};base64,${result.data}`;
+  const img = await loadImageFromDataUrl(dataUrl);
+  _cachedImagePath = path;
+  _cachedImage = img;
+  return img;
+}
+
+/** Extract pixels from an image, optionally cropped + resized (mirrors browser adapter). */
+function extractPixels(
+  img: HTMLImageElement,
+  maxDim: number,
+  crop: CropRect | null,
+  sharp: boolean,
+  widthRatio?: number
+): PixelData {
+  const sx = crop ? crop.x : 0;
+  const sy = crop ? crop.y : 0;
+  const sw = crop ? crop.width : img.naturalWidth;
+  const sh = crop ? crop.height : img.naturalHeight;
+
+  const scale = Math.min(1, maxDim / Math.max(sw, sh));
+  let dw = Math.round(sw * scale);
+  const dh = Math.round(sh * scale);
+  if (widthRatio && widthRatio > 0 && widthRatio !== 1.0) {
+    dw = Math.max(1, Math.round(dw * widthRatio));
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = dw;
+  canvas.height = dh;
+  const ctx = canvas.getContext("2d")!;
+  ctx.imageSmoothingEnabled = !sharp;
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+
+  const imageData = ctx.getImageData(0, 0, dw, dh);
+  const pixels: number[] = [];
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    pixels.push(imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]);
+  }
+  return { width: dw, height: dh, pixels };
+}
+
 // Current document state (set by extension on load)
 let currentDocPath = "";
 let onDocumentLoad: ((content: string, path: string) => void) | null = null;
@@ -144,14 +225,43 @@ export class VScodeAdapter implements PlatformAdapter {
     return this.loadProject(path);
   }
 
-  async previewImage(_path: string): Promise<ImagePreview> {
-    // Image preview requires canvas-based processing (done in webview)
-    // For VS Code, we load the image directly in the webview
-    throw new Error("Image preview not yet supported in VS Code extension. Use desktop app for image import.");
+  async previewImage(path: string): Promise<ImagePreview> {
+    const img = await getImageElement(path);
+
+    const maxPreview = 400;
+    const scale = Math.min(1, maxPreview / Math.max(img.naturalWidth, img.naturalHeight));
+    const pw = Math.max(1, Math.round(img.naturalWidth * scale));
+    const ph = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = pw;
+    canvas.height = ph;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0, pw, ph);
+    const imageData = ctx.getImageData(0, 0, pw, ph);
+    const pixels: number[] = [];
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      pixels.push(imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]);
+    }
+
+    return {
+      original_width: img.naturalWidth,
+      original_height: img.naturalHeight,
+      preview_width: pw,
+      preview_height: ph,
+      pixels,
+    };
   }
 
-  async importImage(_path: string, _maxDimension: number, _crop: CropRect | null, _sharp: boolean): Promise<PixelData> {
-    throw new Error("Image import not yet supported in VS Code extension. Use desktop app for image import.");
+  async importImage(
+    path: string,
+    maxDimension: number,
+    crop: CropRect | null,
+    sharp: boolean,
+    widthRatio?: number
+  ): Promise<PixelData> {
+    const img = await getImageElement(path);
+    return extractPixels(img, maxDimension, crop, sharp, widthRatio);
   }
 
   async exportImage(request: ExportImageRequest): Promise<void> {
