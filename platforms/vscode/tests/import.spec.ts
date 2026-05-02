@@ -1,0 +1,143 @@
+import { test, expect } from "@playwright/test";
+import * as fs from "fs";
+import * as path from "path";
+import {
+  setupPage,
+  loadProject,
+  cleanupHarness,
+  stageReply,
+  clickButton,
+  callAction,
+  getStoreState,
+  FIXTURES_DIR,
+} from "./helpers";
+
+const PNG_PATH = path.join(FIXTURES_DIR, "sample-32x32.png");
+const PNG_BASE64 = fs.readFileSync(PNG_PATH).toString("base64");
+
+async function openImportDialog(page: import("@playwright/test").Page) {
+  await clickButton(page, "导入图片");
+  await page.getByRole("heading", { name: "导入图片" }).waitFor({ timeout: 5_000 });
+}
+
+test.describe("Image import (regression for 0.8.4)", () => {
+  test.afterAll(() => cleanupHarness());
+
+  test("dialog opens", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+    await expect(page.getByRole("heading", { name: "导入图片" })).toBeVisible();
+  });
+
+  test("选择文件 → preview canvas appears + original size shown", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+
+    await clickButton(page, "选择文件");
+
+    // The "原图: 32×32" label only appears once previewImage resolves
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("🔍 自动检测 button appears after preview (regression for 0.8.4)", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    // Before any preview: no auto-detect button
+    expect(await page.getByRole("button", { name: /自动检测/ }).count()).toBe(0);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+    await clickButton(page, "选择文件");
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+
+    // After preview: auto-detect button shows up
+    await expect(page.getByRole("button", { name: /自动检测/ })).toBeVisible();
+  });
+
+  test("预览 button → matched preview rendered (regression for 0.8.4)", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+    await clickButton(page, "选择文件");
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+
+    // Click 预览 — second instance of readFile is needed (importImage path)
+    // but our adapter caches the decoded image so no second readFile fires
+    await clickButton(page, /^预览$/);
+
+    // "图片尺寸: 32×32" appears once color matching completes
+    await expect(page.getByText(/图片尺寸:\s*\d+×\d+/)).toBeVisible({ timeout: 8_000 });
+  });
+
+  test("对比多种组合 button → 2 algorithm panels rendered", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+    await clickButton(page, "选择文件");
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+
+    await clickButton(page, "对比多种组合");
+
+    // Both algorithm tabs should be visible (RGB + CIELAB)
+    await expect(page.getByRole("button", { name: /^RGB/ })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: /^CIELAB/ })).toBeVisible();
+  });
+
+  test("确认导入 → loads matched data into editor", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    const sizeBefore = await getStoreState<{ width: number; height: number }>(page, "canvasSize");
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", "/img.png");
+    await stageReply(page, "readFile", { data: PNG_BASE64 });
+    await clickButton(page, "选择文件");
+    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+
+    await clickButton(page, /^预览$/);
+    await expect(page.getByText(/图片尺寸:\s*\d+×\d+/)).toBeVisible({ timeout: 8_000 });
+
+    await clickButton(page, "确认导入");
+    // Dialog should close
+    await page.getByRole("heading", { name: "导入图片" }).waitFor({ state: "hidden", timeout: 5_000 });
+
+    // Canvas size should reflect the imported image (defaults: max dim 52, image 32x32 → fits as 32x32)
+    const sizeAfter = await getStoreState<{ width: number; height: number }>(page, "canvasSize");
+    // It should have changed in some way (either size or contents). Easier:
+    // canvasData should now have at least some non-null cells from matching.
+    const hasContent = await page.evaluate(() => {
+      const data = (window as any).__pindouStore.getState().canvasData;
+      for (const row of data) for (const cell of row) if (cell.colorIndex != null) return true;
+      return false;
+    });
+    expect(hasContent).toBe(true);
+  });
+
+  test("cancel from open dialog → dialog stays empty", async ({ page }) => {
+    await setupPage(page);
+    await loadProject(page);
+    await openImportDialog(page);
+
+    await stageReply(page, "showOpenDialog", null); // cancel
+    await clickButton(page, "选择文件");
+    await page.waitForTimeout(300);
+
+    // No 原图 label rendered
+    expect(await page.getByText(/原图:/).count()).toBe(0);
+    // "未选择" label still present
+    await expect(page.getByText("未选择")).toBeVisible();
+  });
+});

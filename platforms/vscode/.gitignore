@@ -1,0 +1,3 @@
+# VS Code test runner downloads + outputs
+.vscode-test/
+out-e2e/

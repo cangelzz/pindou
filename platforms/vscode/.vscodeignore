@@ -3,6 +3,8 @@ src/**
 webview/**
 node_modules/**
 tests/**
+tests-e2e/**
+out-e2e/**
 test-results/**
 tsconfig.json
 playwright.config.ts

@@ -14,6 +14,10 @@ const adapter = new VScodeAdapter();
 setAdapter(adapter);
 
 (window as any).__pindouVersion = __PINDOU_VERSION__;
+// Expose the Zustand store on window for Playwright tests. Harmless in
+// production (the global is unreachable from any normal user flow) but
+// gives tests a stable hook to read state and dispatch actions.
+(window as any).__pindouStore = useEditorStore;
 
 // Provide VS Code-native GitHub login for the app's "登录 GitHub" button.
 // App.tsx checks for this function and uses it instead of the Tauri device code flow.

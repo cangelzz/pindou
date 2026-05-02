@@ -34,7 +34,11 @@ jobs:
       - name: Install Playwright browsers
         run: cd platforms/vscode && npx playwright install --with-deps chromium
       - name: Run VS Code webview tests
-        run: cd platforms/vscode && npm test
+        run: cd platforms/vscode && npm run test:webview
+      - name: Run VS Code host smoke tests (real VS Code via test-electron)
+        run: cd platforms/vscode && xvfb-run -a npm run test:e2e
+        env:
+          DISPLAY: ":99.0"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
