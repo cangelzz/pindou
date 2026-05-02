@@ -8,5 +8,6 @@ out-e2e/**
 test-results/**
 tsconfig.json
 playwright.config.ts
+TESTING.md
 *.ts
 !dist/**

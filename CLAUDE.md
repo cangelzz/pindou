@@ -31,3 +31,29 @@ Release: GitHub Actions → Release → Run workflow (version auto-computed).
 4. Delete the branch: `git branch -d branch-name`
 
 This keeps main history clean with one commit per feature/fix.
+
+## VS Code Extension Tests
+
+Located in `platforms/vscode/`. Two layers:
+
+- **Webview tests** (Playwright, ~30s) — `tests/*.spec.ts` and `tests/webview.integration.test.ts`. Runs the built webview bundle in headless Chromium with a mock `acquireVsCodeApi`. Covers file ops, drawing/store actions, selection/clipboard/undo/redo, image import, export. 42 tests.
+- **Host smoke tests** (`@vscode/test-electron`, ~30-60s) — `tests-e2e/suite/*.test.ts`. Boots a real VS Code, verifies the extension activates, commands register, custom editor binds to `*.pindou`, `newProject` opens an untitled temp file. 4 tests. **Skipped on local Windows** (Code.exe launcher rejects test-electron's CLI flags); runs on Linux CI with xvfb. Set `PINDOU_FORCE_E2E=1` to attempt locally on Windows.
+
+Commands (run from `platforms/vscode/`):
+
+```
+npm run test:webview   # Playwright suite
+npm run test:e2e       # @vscode/test-electron suite (no-op on Windows)
+npm test               # both
+```
+
+CI runs both layers via the `test-vscode` job in `.github/workflows/ci.yml` on every PR and push to main.
+
+**Before publishing a new VS Code extension version**, always run `npm run test:webview` locally first. The webview suite caught all three of the bugs shipped in 0.8.4–0.8.6, so it's the cheapest pre-publish check.
+
+When adding a new feature to the extension:
+1. Add a Playwright test in the relevant `tests/*.spec.ts` (extend an existing describe or create a new spec file)
+2. Use store actions via `callAction(page, 'actionName', [args])` for setup/assertions — don't synthesize canvas pointer events unless absolutely necessary
+3. For dialog-driven UI, use `stageReply(page, 'showSaveDialog', '/path')` to mock host responses before triggering the action
+4. See `tests/helpers.ts` for the full helper API
+

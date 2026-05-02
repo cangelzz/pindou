@@ -40,3 +40,7 @@ PindouVerse (拼豆宇宙) is a cross-platform perler bead pixel art editor. Thi
 ## License
 
 MIT
+
+## Development
+
+See [TESTING.md](./TESTING.md) for the test suite (Playwright webview tests + `@vscode/test-electron` host smoke tests).
