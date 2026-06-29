@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter, isTransparentBead } from "../../data/mard221";
+import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter, isTransparentBead, TRANSPARENT_BEAD_INDEX } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
 import { appPrompt, appConfirm } from "../Dialog/AppDialog";
@@ -94,6 +94,11 @@ export function ColorPalette() {
         .filter(({ index }) => indexSet.has(index));
     } else {
       const groupIndices = new Set(getGroupIndices(groupId));
+      // H1 transparent bead is excluded from auto-matching but must stay manually
+      // selectable wherever the H series is shown.
+      if (COLOR_GROUPS.find((g) => g.id === groupId)?.series.includes("H")) {
+        groupIndices.add(TRANSPARENT_BEAD_INDEX);
+      }
       items = MARD_COLORS
         .map((c, i) => ({ color: c, index: i }))
         .filter(({ index }) => groupIndices.has(index));
