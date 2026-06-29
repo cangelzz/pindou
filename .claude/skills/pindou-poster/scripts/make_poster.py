@@ -1202,7 +1202,7 @@ def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bo
             r, g, b, a = logo.split()
             rgb = ImageEnhance.Contrast(Image.merge("RGB", (r, g, b))).enhance(title_contrast)
             logo = Image.merge("RGBA", (*rgb.split(), a))
-        scale = min(W*0.66/logo.width, title_band*0.96/logo.height)
+        scale = min(W*0.60/logo.width, title_band*0.74/logo.height)
         logo = logo.resize((max(1, int(logo.width*scale)), max(1, int(logo.height*scale))),
                            Image.LANCZOS)
         if title_shadow:                                  # heavy soft drop shadow (+opt stroke)
