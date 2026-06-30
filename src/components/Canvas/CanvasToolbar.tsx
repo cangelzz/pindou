@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import type { EditorTool } from "../../types";
 import { hasToken } from "../../utils/llmVoice";
@@ -32,6 +32,37 @@ export function CanvasToolbar() {
 
   const [showShapeMenu, setShowShapeMenu] = useState(false);
   const [showEraserMenu, setShowEraserMenu] = useState(false);
+  const shapeMenuRef = useRef<HTMLDivElement>(null);
+  const eraserMenuRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss the tool flyouts when the user clicks anywhere outside them (e.g.
+  // another tool button or the canvas) or presses Escape. Clicks on a flyout's
+  // own container (its toggle button or sub-options) are ignored so toggling
+  // and selecting still work.
+  useEffect(() => {
+    if (!showShapeMenu && !showEraserMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (showShapeMenu && shapeMenuRef.current && !shapeMenuRef.current.contains(target)) {
+        setShowShapeMenu(false);
+      }
+      if (showEraserMenu && eraserMenuRef.current && !eraserMenuRef.current.contains(target)) {
+        setShowEraserMenu(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowShapeMenu(false);
+        setShowEraserMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showShapeMenu, showEraserMenu]);
 
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
@@ -54,7 +85,7 @@ export function CanvasToolbar() {
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
       {/* Shape tools flyout — at top */}
-      <div className="relative">
+      <div className="relative" ref={shapeMenuRef}>
         <button
           onClick={() => setShowShapeMenu(!showShapeMenu)}
           className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
@@ -111,7 +142,7 @@ export function CanvasToolbar() {
       ))}
 
       {/* Eraser tools flyout */}
-      <div className="relative">
+      <div className="relative" ref={eraserMenuRef}>
         <button
           onClick={() => setShowEraserMenu(!showEraserMenu)}
           className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
