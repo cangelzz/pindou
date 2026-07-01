@@ -721,7 +721,7 @@ export function PixelCanvas() {
 
     const { startX = 1, startY = 1, edgePadding = 0 } = gridConfig;
     const fontSize = Math.max(8, Math.min(cellSize * 0.4, 14));
-    ctx.font = `bold ${fontSize}px monospace`;
+    ctx.font = `bold ${fontSize}px "Segoe UI", Arial, sans-serif`;
     const labelH = fontSize + 4;
     const labelW = Math.max(fontSize * 2.5, 24);
 

@@ -417,7 +417,7 @@ export class BrowserAdapter implements PlatformAdapter {
 
     // Axis numbers
     const axisFont = Math.max(8, cell_size * 0.3);
-    ctx.font = `bold ${axisFont}px monospace`;
+    ctx.font = `bold ${axisFont}px "Segoe UI", Arial, sans-serif`;
     ctx.fillStyle = "rgba(60,60,60,0.9)";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";

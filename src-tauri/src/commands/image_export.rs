@@ -248,6 +248,9 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let code_scale = PxScale::from(cs as f32 * 0.4);
     let axis_scale = PxScale::from(cs as f32 * 0.45);
     let axis_color = Rgba([80, 80, 80, 255]);
+    // Axis numbers use the sans-serif face (matching the on-screen canvas), not
+    // the monospace face used for color codes.
+    let axis_font = bold_font()?;
 
     let sx = request.start_x.unwrap_or(1);
     let sy = request.start_y.unwrap_or(1);
@@ -259,14 +262,14 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
         let label = format!("{}", col as i32 - ep as i32 + sx);
         let tx = x as i32 + cs as i32 / 6;
         let ty = header_h as i32 + cs as i32 / 4;
-        draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);
+        draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, axis_font, &label);
     }
     for row in ep..request.height - ep {
         let y = header_h + margin + row * cs;
         let label = format!("{}", row as i32 - ep as i32 + sy);
         let tx = cs as i32 / 8;
         let ty = y as i32 + cs as i32 / 4;
-        draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, &font, &label);
+        draw_text_mut(&mut img, axis_color, tx, ty, axis_scale, axis_font, &label);
     }
 
     // Draw cells

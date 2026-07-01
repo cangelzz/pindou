@@ -379,7 +379,7 @@ export class VScodeAdapter implements PlatformAdapter {
     // Axis labels — drawn in the four margin strips, NOT in translated space.
     // Top + bottom = column numbers; left + right = row numbers.
     const axisFontPx = Math.max(8, cell_size * 0.45);
-    ctx.font = `${axisFontPx}px monospace`;
+    ctx.font = `${axisFontPx}px "Segoe UI", Arial, sans-serif`;
     ctx.fillStyle = "rgb(80,80,80)";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
