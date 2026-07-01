@@ -1,6 +1,6 @@
 [package]
 name = "pindouverse"
-version = "1.3.3"
+version = "1.3.4"
 description = "拼豆宇宙 - PindouVerse Pixel Art Editor for Perler Beads"
 authors = ["xiaofeicheng"]
 edition = "2021"
