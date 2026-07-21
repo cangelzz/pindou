@@ -4,20 +4,26 @@ from __future__ import annotations
 
 import argparse
 import json
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
 
 if __package__:
-    from .pindou_refine import load_palette, render_plain
+    from .pindou_refine import PaletteColor, load_palette, render_plain
 else:
-    from pindou_refine import load_palette, render_plain
+    from pindou_refine import PaletteColor, load_palette, render_plain
 
 
 CHARACTER_ORDER = ("monkey", "monk", "pig", "wujing")
 DEFAULT_SIZE = (1800, 2400)
 BACKGROUND_X_POSITION = 0.20
+
+
+@lru_cache(maxsize=None)
+def _load_palette_cached(path: Path) -> list[PaletteColor]:
+    return load_palette(path)
 
 
 def cover_crop(
@@ -73,17 +79,21 @@ def clean_logo(path: Path) -> Image.Image:
     rgba = np.dstack((rgb.astype(np.uint8), alpha))
     cleaned = Image.fromarray(rgba, mode="RGBA")
     bounds = cleaned.getchannel("A").getbbox()
-    return cleaned.crop(bounds) if bounds is not None else cleaned
+    if bounds is None:
+        raise ValueError(f"logo has no extractable foreground: {path}")
+    return cleaned.crop(bounds)
 
 
 def render_character(root: Path, name: str) -> Image.Image:
     """Render a project's top-level canvasData without strict layer validation."""
     project_path = root / "samples" / f"xiyou-{name}.pindou"
     project = json.loads(project_path.read_text(encoding="utf-8"))
-    palette = load_palette(root / "src" / "data" / "mard221.ts")
+    palette = _load_palette_cached(root / "src" / "data" / "mard221.ts")
     rendered = render_plain(project["canvasData"], palette, cell_size=16)
     bounds = rendered.getchannel("A").getbbox()
-    return rendered.crop(bounds) if bounds is not None else rendered
+    if bounds is None:
+        raise ValueError(f"character {name!r} has no visible pixels")
+    return rendered.crop(bounds)
 
 
 def paste_with_shadow(
@@ -94,14 +104,25 @@ def paste_with_shadow(
     """Paste a character with a consistent, soft alpha-derived shadow."""
     blur_radius = max(4, round(image.width * 0.018))
     offset = max(3, round(image.height * 0.012))
-    shadow_alpha = image.getchannel("A").filter(
+    padding = blur_radius * 3 + offset
+    shadow_alpha = Image.new(
+        "L",
+        (image.width + padding * 2, image.height + padding * 2),
+        0,
+    )
+    shadow_alpha.paste(image.getchannel("A"), (padding, padding))
+    shadow_alpha = shadow_alpha.filter(
         ImageFilter.GaussianBlur(radius=blur_radius)
     )
     shadow_alpha = shadow_alpha.point(lambda value: round(value * 0.38))
-    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    shadow = Image.new("RGBA", shadow_alpha.size, (0, 0, 0, 0))
     shadow.putalpha(shadow_alpha)
     x, y = position
-    canvas.paste(shadow, (x + offset, y + offset), shadow)
+    canvas.paste(
+        shadow,
+        (x - padding, y + offset - padding),
+        shadow,
+    )
     canvas.paste(image, position, image)
 
 
