@@ -1125,10 +1125,11 @@ def add_logo_effects(logo, stroke=0, stroke_fill=(24, 18, 14), shadow_blur=0,
     top = Image.new("RGBA", (W, H), (0, 0, 0, 0)); top.paste(logo, (lx, ly), logo)
     return Image.alpha_composite(out, top)
 
-def bg_photo(path, W, H, dim=0.5):
+def bg_photo(path, W, H, dim=0.5, vignette=True):
     """Use a photo as the background: cover-fit (scale to fill, center-crop) then
     darken (scaled by `dim`, 0..1) with a uniform wash + edge vignette so the card,
-    logo and credit pop. Lower dim keeps a bright photo bright."""
+    logo and credit pop. Lower dim keeps a bright photo bright. Set vignette=False
+    to skip the darkened edges (keeps the uniform wash)."""
     im = Image.open(path).convert("RGB")
     s = max(W / im.width, H / im.height)
     nw, nh = int(im.width * s + 0.5), int(im.height * s + 0.5)
@@ -1137,6 +1138,8 @@ def bg_photo(path, W, H, dim=0.5):
     im = im.crop((x, y, x + W, y + H)).convert("RGBA")
     wash = Image.new("RGBA", (W, H), (12, 10, 8, int(130*dim)))   # uniform wash
     im = Image.alpha_composite(im, wash)
+    if not vignette:
+        return im
     vig = Image.new("L", (W, H), 0)                          # edge vignette
     ImageDraw.Draw(vig).ellipse([int(W*0.05), int(H*0.04), int(W*0.95), int(H*0.96)], fill=255)
     vig = vig.filter(ImageFilter.GaussianBlur(W//7))
@@ -1147,12 +1150,12 @@ def bg_photo(path, W, H, dim=0.5):
 def compose(images, theme, ratio, title, credit, out, base_w, font_path, font_bold, seed,
             layout="vstack", title_image=None, title_keep_bg=False, bg_image=None, bg_dim=0.5,
             title_scale=1.0, title_contrast=1.0, art_scale=1.0, title_shadow=False, title_stroke=False,
-            title_stroke_color=None):
+            title_stroke_color=None, vignette=True):
     th = THEMES[theme]
     rw, rh = (int(x) for x in ratio.split(":"))
     W = base_w; H = int(round(W * rh / rw))
     rng = random.Random(seed)
-    poster = (bg_photo(bg_image, W, H, bg_dim) if bg_image else th["bg"](W, H, rng)).convert("RGBA")
+    poster = (bg_photo(bg_image, W, H, bg_dim, vignette) if bg_image else th["bg"](W, H, rng)).convert("RGBA")
 
     arts = [crop_pindou_art(p) for p in images]
     n = len(arts)
@@ -1268,6 +1271,8 @@ def main():
                     help="photo to use as the background (cover-fit + darkened); overrides the theme background")
     ap.add_argument("--bg-dim", type=float, default=0.5,
                     help="darkening strength for --bg-image, 0..1 (lower = brighter). Default 0.5")
+    ap.add_argument("--no-vignette", action="store_true",
+                    help="with --bg-image, skip the darkened edge vignette (keeps the uniform wash)")
     ap.add_argument("--credit", default="")
     ap.add_argument("--out", default="poster.png")
     ap.add_argument("--width", type=int, default=2400)
@@ -1287,7 +1292,7 @@ def main():
                  a.width, a.font, a.font_bold, a.seed, a.layout,
                  a.title_image, a.title_keep_bg, a.bg_image, a.bg_dim,
                  a.title_scale, a.title_contrast, a.art_scale, a.title_shadow, a.title_stroke,
-                 stroke_col)
+                 stroke_col, not a.no_vignette)
     print(f"saved {a.out} {sz} theme={a.theme} layout={a.layout}")
 
 if __name__ == "__main__":
