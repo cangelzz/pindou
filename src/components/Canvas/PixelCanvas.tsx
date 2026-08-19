@@ -66,7 +66,7 @@ export function PixelCanvas() {
   const previewOverlay = useEditorStore((s) => s.previewOverlay);
   const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
-  const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
+  const voiceEnhancementEnabled = useEditorStore((s) => s.voiceEnhancementEnabled);
 
   const selection = useEditorStore((s) => s.selection);
   const selectionBounds = useEditorStore((s) => s.selectionBounds);
@@ -252,6 +252,15 @@ export function PixelCanvas() {
 
       // Handle goto command — jump to grid containing the target cell
       if (result.command === "goto" && result.gotoCol !== undefined && result.gotoRow !== undefined) {
+        const minCol = startX;
+        const minRow = startY;
+        const maxCol = startX + innerW - 1;
+        const maxRow = startY + innerH - 1;
+        if (result.gotoCol < minCol || result.gotoCol > maxCol || result.gotoRow < minRow || result.gotoRow > maxRow) {
+          playUnknown();
+          setVoiceFeedback(`? 超出范围 ${result.gotoCol}列${result.gotoRow}行`);
+          return;
+        }
         const targetCol = result.gotoCol - startX; // convert label to 0-based
         const targetRow = result.gotoRow - startY;
         const gc = Math.max(0, Math.min(maxGC, Math.floor(targetCol / groupSize)));
@@ -308,7 +317,7 @@ export function PixelCanvas() {
   );
 
   // Voice control: start/stop based on store toggle
-  const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand, useLLM: aiVoiceEnabled });
+  const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand, useLLM: voiceEnhancementEnabled });
 
   // Sync store when voice auto-stops (idle timeout) — only if it was previously listening
   const wasListening = useRef(false);
@@ -1489,7 +1498,7 @@ export function PixelCanvas() {
           <span className="text-purple-500">🪞 镜像</span>
         )}
         {voiceControl.isListening && (
-          <span className="text-red-500 animate-pulse">🎤 语音控制中</span>
+          <span className="text-red-500 animate-pulse">🎤 正在监听...</span>
         )}
         {voiceFeedback && (
           <span className="text-green-600 font-semibold">{voiceFeedback}</span>

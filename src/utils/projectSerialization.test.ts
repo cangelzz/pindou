@@ -44,6 +44,15 @@ describe("normalizeProjectFromDisk", () => {
     expect(p.canvasData).toEqual([[{ colorIndex: 4 }]]);
   });
 
+  it("fills missing legacy timestamps with one stable ISO normalization time", () => {
+    const p = normalizeProjectFromDisk(JSON.stringify({
+      canvasSize: { width: 1, height: 1 },
+      canvasData: [[{ colorIndex: 4 }]],
+    }));
+    expect(p.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(p.updatedAt).toBe(p.createdAt);
+  });
+
   it("treats unknown future version (>=4) as v3", () => {
     const raw = JSON.stringify({
       version: 99,
@@ -72,6 +81,17 @@ describe("normalizeProjectFromDisk", () => {
     expect(p.layers?.[0].data).toEqual([
       [{ colorIndex: null }, { colorIndex: 5 }],
     ]);
+  });
+
+  it("accepts missing or null layers for legacy single-layer projects", () => {
+    const base = { canvasSize: { width: 1, height: 1 }, canvasData: [[{ colorIndex: 1 }]] };
+    expect(normalizeProjectFromDisk(JSON.stringify(base)).layers).toBeUndefined();
+    expect(normalizeProjectFromDisk(JSON.stringify({ ...base, layers: null })).layers).toBeUndefined();
+  });
+
+  it("rejects a present non-array layers value", () => {
+    const raw = JSON.stringify({ canvasSize: { width: 1, height: 1 }, canvasData: [[null]], layers: {} });
+    expect(() => normalizeProjectFromDisk(raw)).toThrow(/layers/i);
   });
 
   it("normalises layers' data on v2 (verbose)", () => {
@@ -121,6 +141,22 @@ describe("normalizeProjectFromDisk", () => {
     expect(normalizeProjectFromDisk(v2).version).toBe(3);
   });
 
+  it("throws for structurally invalid projects", () => {
+    const invalid = [
+      null,
+      [],
+      { canvasData: [[null]] },
+      { canvasSize: { width: 0, height: 1 }, canvasData: [[]] },
+      { canvasSize: { width: 1.5, height: 1 }, canvasData: [[null]] },
+      { canvasSize: { width: 2, height: 1 }, canvasData: [[null]] },
+      { canvasSize: { width: 1, height: 2 }, canvasData: [[null]] },
+      { canvasSize: { width: 1, height: 1 }, canvasData: [[null]], layers: [{ id: "x", data: [[]] }] },
+    ];
+    for (const value of invalid) {
+      expect(() => normalizeProjectFromDisk(JSON.stringify(value))).toThrow();
+    }
+  });
+
   it("throws when a verbose cell carries a non-number/non-null colorIndex", () => {
     const raw = JSON.stringify({
       version: 2,
@@ -156,6 +192,19 @@ describe("serializeProjectToV3", () => {
     const back = JSON.parse(out);
     expect(back.version).toBe(3);
     expect(back.canvasData).toEqual([[null, 5]]);
+  });
+
+  it("preserves optional projectId in compact v3 serialization and normalization", () => {
+    const serialized = serializeProjectToV3({
+      version: 3,
+      projectId: "project-stable",
+      canvasSize: { width: 1, height: 1 },
+      canvasData: [[{ colorIndex: 2 }]],
+      createdAt: "t",
+      updatedAt: "t",
+    });
+    expect(JSON.parse(serialized).projectId).toBe("project-stable");
+    expect(normalizeProjectFromDisk(serialized).projectId).toBe("project-stable");
   });
 
   it("collapses layers' data too", () => {

@@ -1,6 +1,8 @@
 import { create } from "zustand";
-import { getAdapter } from "../adapters";
 import type { SnapshotInfo } from "../adapters";
+import { getPlatformServices } from "../platform/serviceRegistry";
+import type { ProjectDocumentRef } from "../platform/projectFileService";
+import type { PlatformResult } from "../platform/result";
 import { loadOverrides, saveOverrides, hexToRgb, type ColorOverrideMap } from "../utils/colorHelper";
 import { computeFloodReplaceEntries } from "../utils/floodFill";
 import { buildSelectionRemap, type ColorAdjustments } from "../utils/colorAdjust";
@@ -49,7 +51,7 @@ interface EditorState {
   blueprintMirror: boolean;
   gridFocusMode: boolean;
   voiceControlEnabled: boolean;
-  aiVoiceEnabled: boolean; // feature switch for LLM voice, default off
+  voiceEnhancementEnabled: boolean; // feature switch for LLM voice, default off
   showActiveLayerTag: boolean; // floating "active layer" tag on canvas, default on
 
   // Tool state
@@ -64,6 +66,13 @@ interface EditorState {
 
   // File state
   projectPath: string | null;
+  projectDocument: ProjectDocumentRef | null;
+  /** Stable only while edits belong to the same logical project/document. */
+  /** Stable logical identity persisted as ProjectFile.projectId on the next save. */
+  projectId: string;
+  projectCreatedAt: string;
+  /** Monotonic identity revision; changes whenever project content is replaced wholesale. */
+  projectGeneration: number;
   isDirty: boolean;
   importedFileName: string | null;
   baselineCanvasData: CanvasData | null;
@@ -72,11 +81,18 @@ interface EditorState {
   // Cloud sync
   cloudGistId: string | null;
   cloudUpdatedAt: string | null;
+  cloudVersion: string | null;
   cloudProjectName: string | null;
+  cloudSyncStatus: "unlinked" | "synced" | "local-changes" | "remote-newer";
+  cloudSyncedRevision: number | null;
+  contentRevision: number;
+  cloudOperationGeneration: number;
 
   // Auto-save state
   lastSavedAt: string | null;
   autoSaveEnabled: boolean;
+  lastAutosaveErrorCode: string | null;
+  reportAutosaveResult: (result: PlatformResult<void>) => void;
 
   // Snapshots
   snapshots: SnapshotInfo[];
@@ -118,7 +134,7 @@ interface EditorState {
   setBlueprintMirror: (on: boolean) => void;
   setGridFocusMode: (on: boolean) => void;
   setVoiceControlEnabled: (on: boolean) => void;
-  setAiVoiceEnabled: (on: boolean) => void;
+  setVoiceEnhancementEnabled: (on: boolean) => void;
   setShowActiveLayerTag: (on: boolean) => void;
   setBetaFeature: (key: string, on: boolean) => void;
   addCustomColorGroup: (name: string) => void;
@@ -140,10 +156,17 @@ interface EditorState {
   redo: () => void;
   beginStroke: () => void;
   endStroke: () => void;
-  setCloudSync: (gistId: string | null, updatedAt: string | null, name: string | null) => void;
+  setCloudSync: (gistId: string | null, updatedAt: string | null, name: string | null, syncedRevision?: number, version?: string | null) => void;
+  setCloudSyncStatus: (status: EditorState["cloudSyncStatus"]) => void;
+  beginCloudOperation: () => number;
+  invalidateCloudOperations: () => void;
+  beginCloudDownload: () => number;
+  replaceProjectFromCloud: (project: ProjectFile, gistId: string, name: string, updatedAt: string, ticket?: number, version?: string, cloudTicket?: number) => boolean;
+  clearCloudAssociation: (gistId: string) => void;
   loadCanvasData: (data: CanvasData, size: CanvasSize) => void;
   /** Restore layered state from a saved ProjectFile. Falls back to single-layer if no layers field. */
   loadProjectLayers: (layers: BeadLayer[], size: CanvasSize) => void;
+  loadProjectDocument: (project: ProjectFile, path: string | null, isBackup?: boolean) => void;
   resizeCanvas: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => void;
   countLostPixels: (newWidth: number, newHeight: number, anchorRow: number, anchorCol: number) => number;
   setSelection: (cells: Set<string>) => void;
@@ -199,14 +222,16 @@ interface EditorState {
   // Save/Load
   saveProject: () => Promise<void>;
   saveProjectAs: () => Promise<void>;
-  openProject: () => Promise<void>;
-  autoSave: () => Promise<void>;
+  openProject: () => Promise<PlatformResult<void>>;
+  restoreAutosave: (project: ProjectFile) => void;
+  autoSave: () => Promise<PlatformResult<void>>;
   setAutoSaveEnabled: (enabled: boolean) => void;
 
   // Snapshots
-  createSnapshot: (label: string) => Promise<void>;
-  loadSnapshots: () => Promise<void>;
-  restoreSnapshot: (path: string) => Promise<void>;
+  createSnapshot: (label: string) => Promise<PlatformResult<void>>;
+  loadSnapshots: () => Promise<PlatformResult<SnapshotInfo[]>>;
+  restoreSnapshot: (snapshot: SnapshotInfo | string) => Promise<PlatformResult<void>>;
+  exportSnapshot: (path: string, name: string) => Promise<PlatformResult<void>>;
   deleteSnapshot: (path: string) => Promise<void>;
 
   // Reference image
@@ -332,26 +357,90 @@ const DEFAULT_GRID_CONFIG: GridConfig = makeGridConfig(52, 52);
 const MAX_HISTORY = 200;
 
 let _strokeStartIdx = -1;
+let _projectOperationGeneration = 0;
+let _openRequestGeneration = 0;
+let _autosaveQueue: Promise<void> = Promise.resolve();
+let _cancelPendingFormalAutosaveClear: (() => void) | null = null;
+function enqueueAutosaveOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = _autosaveQueue.then(operation, operation);
+  _autosaveQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+function queueFormalAutosaveClear(): { settle: (success: boolean) => void; done: Promise<void> } {
+  _cancelPendingFormalAutosaveClear?.();
+  let settle!: (success: boolean) => void;
+  const outcome = new Promise<boolean>((resolve) => { settle = resolve; });
+  const cancel = () => settle(false);
+  _cancelPendingFormalAutosaveClear = cancel;
+  const done = enqueueAutosaveOperation(async () => {
+    const success = await outcome;
+    if (_cancelPendingFormalAutosaveClear === cancel) _cancelPendingFormalAutosaveClear = null;
+    if (success) await getPlatformServices().recovery.clearAutosave?.();
+  });
+  return { settle, done };
+}
+let _snapshotLoadGeneration = 0;
+let _snapshotRestoreRequestGeneration = 0;
+
+function invalidateFileOperations(): number {
+  return ++_projectOperationGeneration;
+}
+
+function beginProjectReplacement(): void {
+  invalidateFileOperations();
+  _snapshotRestoreRequestGeneration++;
+  if (typeof useEditorStore !== "undefined") useEditorStore.setState((state) => ({ cloudOperationGeneration: state.cloudOperationGeneration + 1 }));
+}
 
 function cloneCanvasData(data: CanvasData): CanvasData {
   return data.map(row => row.map(cell => ({ ...cell })));
 }
 
-function buildProjectFile(state: EditorState): ProjectFile {
-  const now = new Date().toISOString();
+function projectStateIsUnchanged(before: EditorState, after: EditorState): boolean {
+  return before.canvasSize === after.canvasSize
+    && before.canvasData === after.canvasData
+    && before.layers === after.layers
+    && before.gridConfig === after.gridConfig
+    && before.projectInfo === after.projectInfo;
+}
+
+let projectIdentityGenerator: () => string = () => globalThis.crypto?.randomUUID?.()
+  ?? `project-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+export function setProjectIdentityGeneratorForTest(generator: () => string): void {
+  projectIdentityGenerator = generator;
+}
+function newProjectIdentity(): string { return projectIdentityGenerator(); }
+function nowIso(): string { return new Date().toISOString(); }
+function markPersistentChange<T extends object>(patch: T): T & Pick<EditorState, "isDirty" | "contentRevision" | "cloudSyncStatus"> {
+  const state = useEditorStore.getState();
+  const revision = state.contentRevision + 1;
   return {
-    version: 2,
+    ...patch,
+    isDirty: true,
+    contentRevision: revision,
+    cloudSyncStatus: state.cloudGistId && state.cloudSyncedRevision !== revision ? "local-changes" : state.cloudSyncStatus,
+  };
+}
+
+export function projectFromEditorState(state: Pick<EditorState, "canvasSize" | "canvasData" | "layers" | "gridConfig" | "projectInfo" | "projectCreatedAt" | "projectId">, now = new Date().toISOString()): ProjectFile {
+  return {
+    version: 3,
+    projectId: state.projectId,
     canvasSize: state.canvasSize,
     canvasData: state.canvasData,
     layers: state.layers,
     gridConfig: state.gridConfig,
     projectInfo: state.projectInfo,
-    createdAt: state.lastSavedAt || now,
+    createdAt: state.projectCreatedAt,
     updatedAt: now,
   };
 }
 
+function buildProjectFile(state: EditorState): ProjectFile { return projectFromEditorState(state); }
+
 const _initLayer = createDefaultLayer(52, 52);
+const _initialCreatedAt = nowIso();
+const _initialIdentity = newProjectIdentity();
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   canvasSize: { width: 52, height: 52 },
@@ -375,7 +464,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   blueprintMirror: false,
   gridFocusMode: false,
   voiceControlEnabled: false,
-  aiVoiceEnabled: false,
+  voiceEnhancementEnabled: false,
   showActiveLayerTag: true,
 
   beadLayerVisible: true,
@@ -390,22 +479,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   redoStack: [],
 
   projectPath: null,
+  projectDocument: null,
+  projectId: _initialIdentity,
+  projectCreatedAt: _initialCreatedAt,
+  projectGeneration: 0,
   isDirty: false,
   baselineCanvasData: null,
   importedFileName: null,
   projectInfo: undefined,
   cloudGistId: null,
   cloudUpdatedAt: null,
+  cloudVersion: null,
   cloudProjectName: null,
+  cloudSyncStatus: "unlinked",
+  cloudSyncedRevision: null,
+  contentRevision: 0,
+  cloudOperationGeneration: 0,
 
   lastSavedAt: null,
   autoSaveEnabled: true,
+  lastAutosaveErrorCode: null,
 
   snapshots: [],
 
   betaFeatures: {
     blueprintImport: false,
-    aiVoice: false,
+    voiceEnhancement: false,
   },
 
   customColorGroups: JSON.parse(localStorage.getItem("pindou_custom_groups") || "[]"),
@@ -419,6 +518,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   adjustSession: null,
 
   newCanvas: (width, height) => {
+    beginProjectReplacement();
     const layer = createDefaultLayer(width, height);
     set({
       canvasSize: { width, height },
@@ -432,6 +532,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       offsetX: 0,
       offsetY: 0,
       projectPath: null,
+      projectDocument: null,
+      projectId: newProjectIdentity(),
+      projectCreatedAt: nowIso(),
+      projectGeneration: get().projectGeneration + 1,
       projectInfo: undefined,
       importedFileName: null,
       baselineCanvasData: null,
@@ -443,9 +547,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selection: null,
       selectionBounds: null,
       floatingSelection: null,
+      clipboard: null,
+      previewOverlay: null,
+      adjustSession: null,
       cloudGistId: null,
       cloudUpdatedAt: null,
+      cloudVersion: null,
       cloudProjectName: null,
+      cloudSyncStatus: "unlinked",
+      cloudSyncedRevision: null,
+      lastSavedAt: null,
+      lastAutosaveErrorCode: null,
     });
   },
 
@@ -580,7 +692,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setVoiceControlEnabled: (on) => set({ voiceControlEnabled: on }),
 
-  setAiVoiceEnabled: (on) => set({ aiVoiceEnabled: on }),
+  setVoiceEnhancementEnabled: (on) => set({ voiceEnhancementEnabled: on }),
 
   setShowActiveLayerTag: (on) => set({ showActiveLayerTag: on }),
 
@@ -649,31 +761,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ colorOverrides: new Map() });
   },
 
-  setGridStartCoords: (startX, startY) => set((state) => ({
+  setGridStartCoords: (startX, startY) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, startX, startY },
   })),
 
-  setEdgePadding: (padding) => set((state) => ({
+  setEdgePadding: (padding) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, edgePadding: Math.max(0, padding) },
   })),
 
-  setGridVisible: (visible) => set((state) => ({
+  setGridVisible: (visible) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, visible },
   })),
 
-  setGridLineColor: (color) => set((state) => ({
+  setGridLineColor: (color) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, lineColor: color },
   })),
 
-  setGridLineWidth: (width) => set((state) => ({
+  setGridLineWidth: (width) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, lineWidth: Math.max(0, width) },
   })),
 
-  setGridGroupLineColor: (color) => set((state) => ({
+  setGridGroupLineColor: (color) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, groupLineColor: color },
   })),
 
-  setGridGroupLineWidth: (width) => set((state) => ({
+  setGridGroupLineWidth: (width) => set((state) => markPersistentChange({
     gridConfig: { ...state.gridConfig, groupLineWidth: Math.max(0, width) },
   })),
 
@@ -785,13 +897,61 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     _strokeStartIdx = -1;
   },
 
-  setCloudSync: (gistId, updatedAt, name) => set({
+  setCloudSync: (gistId, updatedAt, name, syncedRevision, version) => set((state) => ({
     cloudGistId: gistId,
     cloudUpdatedAt: updatedAt,
+    cloudVersion: gistId ? (version ?? state.cloudVersion) : null,
     cloudProjectName: name,
-  }),
+    cloudSyncStatus: gistId ? ((syncedRevision ?? state.contentRevision) === state.contentRevision ? "synced" : "local-changes") : "unlinked",
+    cloudSyncedRevision: gistId ? (syncedRevision ?? state.contentRevision) : null,
+  })),
+  setCloudSyncStatus: (cloudSyncStatus) => set({ cloudSyncStatus }),
+
+  beginCloudOperation: () => { const generation = get().cloudOperationGeneration + 1; set({ cloudOperationGeneration: generation }); return generation; },
+  invalidateCloudOperations: () => set((state) => ({ cloudOperationGeneration: state.cloudOperationGeneration + 1 })),
+  beginCloudDownload: () => {
+    beginProjectReplacement();
+    const generation = get().cloudOperationGeneration + 1;
+    set({ cloudOperationGeneration: generation });
+    return _projectOperationGeneration;
+  },
+
+  replaceProjectFromCloud: (project, gistId, name, updatedAt, ticket, version, cloudTicket) => {
+    if (ticket !== undefined && ticket !== _projectOperationGeneration) return false;
+    if (cloudTicket !== undefined && cloudTicket !== get().cloudOperationGeneration) return false;
+    if (ticket === undefined) beginProjectReplacement();
+    const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
+    const restoredLayers: BeadLayer[] = hasLayers ? project.layers!.map((layer) => ({
+      ...layer, id: nextLayerId(), visible: layer.visible !== false,
+      opacity: typeof layer.opacity === "number" ? Math.max(0, Math.min(1, layer.opacity)) : 1,
+    })) : (() => { const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height); layer.data = project.canvasData; return [layer]; })();
+    const canvasData = hasLayers ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height) : project.canvasData;
+    const revision = get().contentRevision + 1;
+    set({
+      canvasData, canvasSize: project.canvasSize, layers: restoredLayers,
+      activeLayerId: restoredLayers[restoredLayers.length - 1].id,
+      gridConfig: project.gridConfig ? { ...makeGridConfig(project.canvasSize.width, project.canvasSize.height), ...project.gridConfig } : makeGridConfig(project.canvasSize.width, project.canvasSize.height),
+      projectInfo: project.projectInfo, projectPath: null, projectDocument: null,
+      projectId: project.projectId || newProjectIdentity(), projectCreatedAt: project.createdAt,
+      baselineCanvasData: null, isDirty: true, lastSavedAt: null,
+      projectGeneration: get().projectGeneration + 1, undoStack: [], redoStack: [],
+      selection: null, selectionBounds: null, floatingSelection: null, clipboard: null,
+      previewOverlay: null, adjustSession: null, offsetX: 0, offsetY: 0,
+      refImagePixels: null, refImageWidth: 0, refImageHeight: 0,
+      refImageVisible: true, refImageOpacity: 0.3, importedFileName: null,
+      cloudGistId: gistId, cloudUpdatedAt: updatedAt, cloudVersion: version ?? null, cloudProjectName: name,
+      contentRevision: revision, cloudSyncedRevision: revision, cloudSyncStatus: "synced",
+    });
+    return true;
+  },
+
+  clearCloudAssociation: (gistId) => set((state) => state.cloudGistId === gistId ? {
+    cloudGistId: null, cloudUpdatedAt: null, cloudVersion: null, cloudProjectName: null,
+    cloudSyncStatus: "unlinked", cloudSyncedRevision: null,
+  } : {}),
 
   loadCanvasData: (data, size) => {
+    beginProjectReplacement();
     const layer = createDefaultLayer(size.width, size.height);
     layer.data = data;
     set({
@@ -802,12 +962,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeLayerId: layer.id,
       undoStack: [],
       redoStack: [],
+      projectGeneration: get().projectGeneration + 1,
       isDirty: false,
+      projectId: newProjectIdentity(),
+      projectCreatedAt: nowIso(),
     });
   },
 
   loadProjectLayers: (layers, size) => {
     if (!Array.isArray(layers) || layers.length === 0) return;
+    beginProjectReplacement();
     // Re-id layers to keep nextLayerId() monotonic and avoid collisions with the
     // current session's counter (saved files may have been authored elsewhere).
     const remapped: BeadLayer[] = layers.map((l) => ({
@@ -825,7 +989,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       canvasData: mergeLayers(remapped, size.width, size.height),
       undoStack: [],
       redoStack: [],
+      projectGeneration: get().projectGeneration + 1,
+      projectId: newProjectIdentity(),
+      projectCreatedAt: nowIso(),
       isDirty: false,
+    });
+  },
+
+  loadProjectDocument: (project, path, isBackup = false) => {
+    beginProjectReplacement();
+    const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
+    const restoredLayers = hasLayers ? project.layers!.map((layer) => ({
+      ...layer, id: nextLayerId(), visible: layer.visible !== false,
+      opacity: typeof layer.opacity === "number" ? Math.max(0, Math.min(1, layer.opacity)) : 1,
+    })) : (() => { const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height); layer.data = project.canvasData; return [layer]; })();
+    const canvasData = hasLayers ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height) : project.canvasData;
+    set({
+      canvasSize: project.canvasSize, canvasData, layers: restoredLayers,
+      activeLayerId: restoredLayers[restoredLayers.length - 1].id,
+      gridConfig: project.gridConfig ? { ...makeGridConfig(project.canvasSize.width, project.canvasSize.height), ...project.gridConfig } : makeGridConfig(project.canvasSize.width, project.canvasSize.height),
+      projectInfo: project.projectInfo, projectCreatedAt: project.createdAt,
+      projectId: project.projectId || newProjectIdentity(), projectGeneration: get().projectGeneration + 1,
+      projectPath: path, projectDocument: path ? { displayName: path, writable: true } : null,
+      baselineCanvasData: isBackup ? null : cloneCanvasData(canvasData), isDirty: isBackup,
+      lastSavedAt: isBackup ? null : new Date().toLocaleTimeString(), autoSaveEnabled: !isBackup,
+      undoStack: [], redoStack: [], selection: null, selectionBounds: null, floatingSelection: null,
+      clipboard: null, previewOverlay: null, adjustSession: null, offsetX: 0, offsetY: 0,
+      cloudGistId: null, cloudUpdatedAt: null, cloudVersion: null, cloudProjectName: null,
+      cloudSyncStatus: "unlinked", cloudSyncedRevision: null,
     });
   },
 
@@ -964,6 +1155,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   pasteClipboard: async () => {
     const state = get();
+    const projectGeneration = state.projectGeneration;
     if (state.floatingSelection) {
       get().commitFloatingSelection();
     }
@@ -984,7 +1176,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // System clipboard unavailable or not pindou data, use local
     }
 
-    if (!clipData) return;
+    if (projectGeneration !== get().projectGeneration || !clipData) return;
     const { width: cw, height: ch } = get().canvasSize;
     const { width: pw, height: ph } = clipData;
     const offsetRow = Math.floor((ch - ph) / 2);
@@ -1398,53 +1590,114 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       activeLayerId: layer.id,
       undoStack: [],
       redoStack: [],
-      isDirty: false,
+      ...markPersistentChange({}),
+      projectId: newProjectIdentity(),
+      projectCreatedAt: nowIso(),
+      projectGeneration: get().projectGeneration + 1,
+      projectPath: null,
+      projectDocument: null,
+      baselineCanvasData: null,
+      lastSavedAt: null,
+      cloudGistId: null,
+      cloudUpdatedAt: null,
+      cloudVersion: null,
+      cloudProjectName: null,
+      cloudSyncStatus: "unlinked",
+      cloudSyncedRevision: null,
     });
   },
 
-  setProjectPath: (path) => set({ projectPath: path }),
+  setProjectPath: (path) => set({
+    projectPath: path,
+    projectDocument: path ? { displayName: path, writable: true } : null,
+  }),
   setImportedFileName: (name: string | null) => set({ importedFileName: name }),
-  setProjectInfo: (info: ProjectInfo) => set({ projectInfo: info, isDirty: true }),
+  setProjectInfo: (info: ProjectInfo) => set(markPersistentChange({ projectInfo: info })),
 
   saveProject: async () => {
-    const adapter = getAdapter();
+    const operationGeneration = invalidateFileOperations();
     const state = get();
-    let path = state.projectPath;
-    if (!path) {
-      const selected = await adapter.showSaveDialog(
-        [{ name: "PinDou Project", extensions: ["pindou"] }],
-        "untitled.pindou",
-      );
-      if (!selected) return;
-      path = selected;
-    }
+    const formalClear = queueFormalAutosaveClear();
+    const service = getPlatformServices().projectFiles;
     const project = buildProjectFile(state);
-    await adapter.saveProject(path, project);
+    const currentDocument = state.projectDocument
+      ?? (state.projectPath ? { displayName: state.projectPath, writable: true } : null);
+    let result: Awaited<ReturnType<typeof service.saveProject>>;
+    try {
+      result = currentDocument
+        ? await service.saveProject(project, currentDocument)
+        : await service.saveProjectAs(project, "untitled.pindou");
+    } catch (error) {
+      formalClear.settle(false);
+      await formalClear.done;
+      throw error;
+    }
+    if (!result.ok || operationGeneration !== _projectOperationGeneration) {
+      formalClear.settle(false);
+      await formalClear.done;
+      return;
+    }
+    formalClear.settle(true);
     const now = new Date().toLocaleTimeString();
-    set({ projectPath: path, isDirty: false, lastSavedAt: now, baselineCanvasData: cloneCanvasData(state.canvasData) });
+    set({
+      projectPath: result.value.displayName,
+      projectDocument: result.value,
+      isDirty: projectStateIsUnchanged(state, get()) ? false : get().isDirty,
+      lastSavedAt: now,
+      baselineCanvasData: projectStateIsUnchanged(state, get())
+        ? cloneCanvasData(state.canvasData)
+        : get().baselineCanvasData,
+    });
+    await formalClear.done;
   },
 
   saveProjectAs: async () => {
-    const adapter = getAdapter();
+    const operationGeneration = invalidateFileOperations();
     const state = get();
-    const selected = await adapter.showSaveDialog(
-      [{ name: "PinDou Project", extensions: ["pindou"] }],
-      state.projectPath || "untitled.pindou",
-    );
-    if (!selected) return;
-    const project = buildProjectFile(state);
-    await adapter.saveProject(selected, project);
+    const formalClear = queueFormalAutosaveClear();
+    let result: Awaited<ReturnType<ReturnType<typeof getPlatformServices>["projectFiles"]["saveProjectAs"]>>;
+    try {
+      result = await getPlatformServices().projectFiles.saveProjectAs(
+        buildProjectFile(state),
+        state.projectDocument?.fallbackDownloadName || state.projectPath || "untitled.pindou",
+      );
+    } catch (error) {
+      formalClear.settle(false);
+      await formalClear.done;
+      throw error;
+    }
+    if (!result.ok || operationGeneration !== _projectOperationGeneration) {
+      formalClear.settle(false);
+      await formalClear.done;
+      return;
+    }
+    formalClear.settle(true);
     const now = new Date().toLocaleTimeString();
-    set({ projectPath: selected, isDirty: false, lastSavedAt: now, baselineCanvasData: cloneCanvasData(state.canvasData) });
+    set({
+      projectPath: result.value.displayName,
+      projectDocument: result.value,
+      isDirty: projectStateIsUnchanged(state, get()) ? false : get().isDirty,
+      lastSavedAt: now,
+      baselineCanvasData: projectStateIsUnchanged(state, get())
+        ? cloneCanvasData(state.canvasData)
+        : get().baselineCanvasData,
+    });
+    await formalClear.done;
   },
 
   openProject: async () => {
-    const adapter = getAdapter();
-    const selected = await adapter.showOpenDialog(
-      [{ name: "PinDou Project", extensions: ["pindou"] }],
-    );
-    if (!selected) return;
-    const project = await adapter.loadProject(selected);
+    const openRequestGeneration = ++_openRequestGeneration;
+    const contentRevision = get().contentRevision;
+    const projectGeneration = get().projectGeneration;
+    const result = await getPlatformServices().projectFiles.openProject();
+    if (!result.ok) return result;
+    if (openRequestGeneration !== _openRequestGeneration
+      || contentRevision !== get().contentRevision
+      || projectGeneration !== get().projectGeneration) {
+      return { ok: false, code: "cancelled", message: "选择文件期间项目已修改，请重试" };
+    }
+    beginProjectReplacement();
+    const { project, document } = result.value;
     const defaultGrid = makeGridConfig(project.canvasSize.width, project.canvasSize.height);
     const savedGrid = project.gridConfig;
     const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
@@ -1470,7 +1723,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       gridConfig: savedGrid ? { ...defaultGrid, ...savedGrid } : defaultGrid,
       layers: restoredLayers,
       activeLayerId: restoredLayers[restoredLayers.length - 1].id,
-      projectPath: selected as string,
+      projectPath: document.displayName,
+      projectDocument: document,
+      projectId: project.projectId || newProjectIdentity(),
+      projectCreatedAt: project.createdAt,
+      projectGeneration: get().projectGeneration + 1,
       projectInfo: project.projectInfo,
       baselineCanvasData: cloneCanvasData(mergedCanvas),
       undoStack: [],
@@ -1489,51 +1746,70 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       floatingSelection: null,
       cloudGistId: null,
       cloudUpdatedAt: null,
+      cloudVersion: null,
       cloudProjectName: null,
+      cloudSyncStatus: "unlinked",
+      cloudSyncedRevision: null,
+    });
+    return { ok: true, value: undefined };
+  },
+
+  restoreAutosave: (project) => {
+    const ticket = get().beginCloudDownload();
+    get().replaceProjectFromCloud(project, "", "", "", ticket);
+    set({
+      cloudGistId: null, cloudUpdatedAt: null, cloudVersion: null, cloudProjectName: null,
+      cloudSyncStatus: "unlinked", cloudSyncedRevision: null,
     });
   },
 
   autoSave: async () => {
-    const adapter = getAdapter();
     const state = get();
-    if (!state.autoSaveEnabled || !state.isDirty) return;
-
-    try {
-      const dir = await adapter.getAutosaveDir();
-      const path = `${dir}\\autosave.pindou`;
-      const project = buildProjectFile(state);
-      await adapter.saveProject(path, project);
-      const now = new Date().toLocaleTimeString();
-      // Don't clear isDirty — autosave is a backup, not a real save to the original file
-      set({ lastSavedAt: `自动备份 ${now}` });
-    } catch {
-      // Silent fail for auto-save
-    }
+    if (!state.autoSaveEnabled || !state.isDirty) return { ok: true, value: undefined };
+    // Recovery is deliberately not a formal save: never update document identity,
+    // dirty state, baseline, or lastSavedAt. Serialize it with formal-save clears
+    // so an older delayed write cannot erase or overwrite a newer backup.
+    return enqueueAutosaveOperation(() => getPlatformServices().recovery.saveAutosave(buildProjectFile(state)));
   },
+
+  reportAutosaveResult: (result) => set({ lastAutosaveErrorCode: result.ok ? null : result.code }),
 
   setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
 
   createSnapshot: async (label) => {
-    const adapter = getAdapter();
     const state = get();
-    const project = buildProjectFile(state);
-    await adapter.saveSnapshot(project, label);
-    await get().loadSnapshots();
+    const result = await getPlatformServices().recovery.saveSnapshot(buildProjectFile(state), label, state.projectId);
+    if (!result.ok) return result;
+    _snapshotLoadGeneration++;
+    set((state) => ({ snapshots: [result.value, ...state.snapshots.filter((item) => item.path !== result.value.path)]
+      .sort((a, b) => b.modified.localeCompare(a.modified) || b.path.localeCompare(a.path)) }));
+    return { ok: true, value: undefined };
   },
 
   loadSnapshots: async () => {
-    try {
-      const adapter = getAdapter();
-      const snapshots = await adapter.listSnapshots();
-      set({ snapshots });
-    } catch {
-      set({ snapshots: [] });
-    }
+    const generation = ++_snapshotLoadGeneration;
+    const result = await getPlatformServices().recovery.listSnapshots();
+    if (generation !== _snapshotLoadGeneration) return { ok: false, code: "cancelled" };
+    if (result.ok) set({ snapshots: result.value });
+    return result;
   },
 
-  restoreSnapshot: async (path) => {
-    const adapter = getAdapter();
-    const project = await adapter.loadSnapshot(path);
+  restoreSnapshot: async (snapshot) => {
+    const path = typeof snapshot === "string" ? snapshot : snapshot.path;
+    const requestGeneration = ++_snapshotRestoreRequestGeneration;
+    const projectGeneration = get().projectGeneration;
+    const result = await getPlatformServices().recovery.loadSnapshot(path);
+    if (!result.ok) return result;
+    if (requestGeneration !== _snapshotRestoreRequestGeneration
+      || projectGeneration !== get().projectGeneration) {
+      return { ok: false, code: "cancelled" };
+    }
+    const loaded = "project" in result.value ? result.value : { project: result.value };
+    const project = loaded.project;
+    const sourceProjectId = loaded.sourceProjectId
+      ?? project.projectId
+      ?? (typeof snapshot === "string" ? undefined : snapshot.sourceProjectId);
+    const sameProject = !!sourceProjectId && sourceProjectId === get().projectId;
     const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
     const restoredLayers: BeadLayer[] = hasLayers
       ? project.layers!.map((l) => ({
@@ -1551,23 +1827,49 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const mergedCanvas = hasLayers
       ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height)
       : project.canvasData;
-    set({
+    invalidateFileOperations();
+    set((state) => ({
       canvasData: mergedCanvas,
       canvasSize: project.canvasSize,
       layers: restoredLayers,
       activeLayerId: restoredLayers[restoredLayers.length - 1].id,
+      gridConfig: project.gridConfig ?? makeGridConfig(project.canvasSize.width, project.canvasSize.height),
+      projectInfo: project.projectInfo,
+      projectCreatedAt: project.createdAt,
+      projectId: sameProject ? state.projectId : newProjectIdentity(),
+      projectDocument: sameProject ? state.projectDocument : null,
+      projectPath: sameProject ? state.projectPath : null,
+      baselineCanvasData: sameProject ? state.baselineCanvasData : null,
+      lastSavedAt: sameProject ? state.lastSavedAt : null,
+      cloudGistId: sameProject ? state.cloudGistId : null,
+      cloudUpdatedAt: sameProject ? state.cloudUpdatedAt : null,
+      cloudVersion: sameProject ? state.cloudVersion : null,
+      cloudProjectName: sameProject ? state.cloudProjectName : null,
+      cloudSyncStatus: sameProject ? state.cloudSyncStatus : "unlinked",
+      cloudSyncedRevision: sameProject ? state.cloudSyncedRevision : null,
+      projectGeneration: state.projectGeneration + 1,
       undoStack: [],
       redoStack: [],
-      isDirty: false,
-      lastSavedAt: new Date().toLocaleTimeString(),
+      isDirty: true,
       offsetX: 0,
       offsetY: 0,
-    });
+    }));
+    return { ok: true, value: undefined };
+  },
+
+  exportSnapshot: async (path, name) => {
+    const result = await getPlatformServices().recovery.loadSnapshot(path);
+    if (!result.ok) return result;
+    const project = "project" in result.value ? result.value.project : result.value;
+    const safeName = name.replace(/[\\/:*?"<>|]/g, "_");
+    return getPlatformServices().projectFiles.exportProject(project, `${safeName}.pindou`);
   },
 
   deleteSnapshot: async (path) => {
-    const adapter = getAdapter();
-    await adapter.deleteSnapshot(path);
+    const result = await getPlatformServices().recovery.deleteSnapshot(path);
+    if (!result.ok) throw result.cause ?? new Error(result.code);
+    _snapshotLoadGeneration++;
+    set((state) => ({ snapshots: state.snapshots.filter((item) => item.path !== path) }));
     await get().loadSnapshots();
   },
 
@@ -1583,7 +1885,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get();
     const layer = createDefaultLayer(state.canvasSize.width, state.canvasSize.height, name || `图层 ${state.layers.length + 1}`);
     const newLayers = [...state.layers, layer];
-    set({ layers: newLayers, activeLayerId: layer.id });
+    set(markPersistentChange({ layers: newLayers, activeLayerId: layer.id }));
   },
 
   removeLayer: (id) => {
@@ -1606,22 +1908,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setLayerVisible: (id, visible) => {
     const state = get();
     const newLayers = state.layers.map((l) => l.id === id ? { ...l, visible } : l);
-    set({
+    set(markPersistentChange({
       layers: newLayers,
       canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-    });
+    }));
   },
 
   setLayerOpacity: (id, opacity) => {
     const state = get();
     const newLayers = state.layers.map((l) => l.id === id ? { ...l, opacity: Math.max(0, Math.min(1, opacity)) } : l);
-    set({ layers: newLayers });
+    set(markPersistentChange({ layers: newLayers }));
   },
 
   renameLayer: (id, name) => {
     const state = get();
     const newLayers = state.layers.map((l) => l.id === id ? { ...l, name } : l);
-    set({ layers: newLayers });
+    set(markPersistentChange({ layers: newLayers }));
   },
 
   duplicateLayer: (id) => {
@@ -1654,10 +1956,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (newIdx < 0 || newIdx >= state.layers.length) return;
     const newLayers = [...state.layers];
     [newLayers[idx], newLayers[newIdx]] = [newLayers[newIdx], newLayers[idx]];
-    set({
+    set(markPersistentChange({
       layers: newLayers,
       canvasData: mergeLayers(newLayers, state.canvasSize.width, state.canvasSize.height),
-    });
+    }));
   },
 
   mergeLayerDown: (id) => {
@@ -1739,3 +2041,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 }));
+
+// Keep cloud freshness independent from local-file dirty state. Persisted
+// project-content changes advance a lightweight cloud revision.
+let _observedCloudContent = (() => {
+  const state = useEditorStore.getState();
+  return { canvasData: state.canvasData, layers: state.layers, gridConfig: state.gridConfig, projectInfo: state.projectInfo, revision: state.contentRevision };
+})();
+useEditorStore.subscribe((state) => {
+  const changed = state.canvasData !== _observedCloudContent.canvasData || state.layers !== _observedCloudContent.layers
+    || state.gridConfig !== _observedCloudContent.gridConfig || state.projectInfo !== _observedCloudContent.projectInfo;
+  if (!changed) { _observedCloudContent.revision = state.contentRevision; return; }
+  const explicitlyAdvanced = state.contentRevision !== _observedCloudContent.revision;
+  const revision = explicitlyAdvanced ? state.contentRevision : state.contentRevision + 1;
+  _observedCloudContent = { canvasData: state.canvasData, layers: state.layers, gridConfig: state.gridConfig, projectInfo: state.projectInfo, revision };
+  if (!explicitlyAdvanced) useEditorStore.setState({
+    contentRevision: revision,
+    cloudSyncStatus: state.cloudGistId && state.cloudSyncedRevision !== revision ? "local-changes" : state.cloudSyncStatus,
+  });
+});

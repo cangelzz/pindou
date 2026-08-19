@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -45,8 +52,43 @@ jobs:
           name: vscode-test-results
           path: platforms/vscode/test-results/
 
+  test-extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build Chrome extension
+        run: npm run ext:build:chrome
+      - name: Build Edge extension
+        run: npm run ext:build:edge
+      - name: Validate extension builds
+        run: npm run ext:validate
+      - name: Run extension packaging tests
+        run: npm run ext:test:packaging
+      - name: Run extension contract tests
+        run: npm run ext:test:contract
+      - name: Run extension end-to-end tests
+        run: xvfb-run -a npm run ext:test:e2e
+      - name: Package Chrome and Edge extensions
+        run: npm run ext:package
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-extension-artifacts
+          if-no-files-found: warn
+          path: |
+            artifacts/*.zip
+            test-results/
+            playwright-report/
+
   build:
-    needs: [test, test-vscode]
+    needs: [test, test-vscode, test-extension]
     strategy:
       fail-fast: false
       matrix:

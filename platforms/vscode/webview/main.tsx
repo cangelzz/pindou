@@ -4,8 +4,10 @@ import App from "../../../src/App";
 import { setAdapter } from "../../../src/adapters";
 import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject } from "../src/vscodeAdapter";
 import { useEditorStore } from "../../../src/store/editorStore";
-import { setGitHubToken, clearGitHubToken } from "../../../src/utils/llmVoice";
+import { VSCodeGitHubService } from "../../../src/platform/vscodeGitHubService";
 import { normalizeProjectFromDisk } from "../../../src/utils/projectSerialization";
+import { setPlatformServices } from "../../../src/platform/serviceRegistry";
+import { createLegacyPlatformServices } from "../../../src/platform/services";
 import "./styles.css";
 
 declare const __PINDOU_VERSION__: string;
@@ -13,6 +15,20 @@ declare const __PINDOU_VERSION__: string;
 // Initialize VS Code adapter
 const adapter = new VScodeAdapter();
 setAdapter(adapter);
+const githubService = new VSCodeGitHubService(requestGitHubToken);
+const mutableCapabilities = {
+  runtime: "vscode",
+  projectFileHandles: true,
+  downloadFallback: false,
+  githubDeviceFlow: false,
+  gistSync: true,
+  ai: false,
+  browserImageTasks: true,
+  basicVoiceControl: true,
+  environmentLabel: "VS Code Extension",
+} as const;
+const legacyServices = createLegacyPlatformServices(adapter, mutableCapabilities);
+setPlatformServices({ ...legacyServices, github: githubService });
 
 (window as any).__pindouVersion = __PINDOU_VERSION__;
 // Expose the Zustand store on window for Playwright tests. Harmless in
@@ -23,19 +39,14 @@ setAdapter(adapter);
 // Same rationale as __pindouStore — unreachable from any normal user flow.
 (window as any).__pindouAdapter = adapter;
 
-// Provide VS Code-native GitHub login for the app's "登录 GitHub" button.
-// App.tsx checks for this function and uses it instead of the Tauri device code flow.
-(window as any).__pindouLoginGitHub = async (): Promise<boolean> => {
-  const { token } = await requestGitHubToken(true); // createIfNone: true → prompts user
-  if (token) {
-    setGitHubToken(token);
-    return true;
-  }
-  return false;
-};
-
-(window as any).__pindouLogoutGitHub = (): void => {
-  clearGitHubToken();
+// Test seams exercise the real App DOM; production capabilities stay fixed unless a test calls this hook.
+(window as any).__pindouTestGitHub = { setSession: (session: any) => githubService.setSessionForTest(session) };
+(window as any).__pindouTestPlatform = {
+  setCapabilities: (patch: Record<string, unknown>) => {
+    Object.assign(mutableCapabilities, patch);
+    const canvasSize = useEditorStore.getState().canvasSize;
+    useEditorStore.setState({ canvasSize: { ...canvasSize } });
+  },
 };
 
 // Lets the app route the "新建" toolbar button through the extension host so a
@@ -71,30 +82,9 @@ setDocumentLoadHandler((content: string, path: string, isUntitled: boolean, isBa
   try {
     const project = normalizeProjectFromDisk(content);
     if (project.canvasSize && project.canvasData) {
-      const store = useEditorStore.getState();
-      if (Array.isArray(project.layers) && project.layers.length > 0) {
-        store.loadProjectLayers(project.layers, project.canvasSize);
-      } else {
-        store.loadCanvasData(
-          project.canvasData,
-          project.canvasSize
-        );
-      }
-      if (project.gridConfig) {
-        useEditorStore.setState({ gridConfig: { ...store.gridConfig, ...project.gridConfig } });
-      }
-      if (project.projectInfo) {
-        useEditorStore.setState({ projectInfo: project.projectInfo });
-      }
-      // For untitled "New Project" temp files, leave projectPath null so Save
-      // prompts the user for a real destination instead of overwriting the temp.
-      useEditorStore.setState({ projectPath: isUntitled ? null : path });
-      // A file opened from inside a .pindou_autosave folder is a backup the user
-      // is inspecting/recovering. Turn off autosave so the 60s timer doesn't
-      // overwrite the very backup they opened (and, pre-fix, nest more folders).
-      if (isBackup) {
-        useEditorStore.setState({ autoSaveEnabled: false });
-      }
+      // Use the same whole-project load boundary as other platforms so timestamps,
+      // document identity, cloud detachment and transient resets cannot drift.
+      useEditorStore.getState().loadProjectDocument(project, isUntitled ? null : path, isBackup);
     }
   } catch (e) {
     console.error("Failed to parse .pindou file:", e);
@@ -107,13 +97,8 @@ setDocumentLoadHandler((content: string, path: string, isUntitled: boolean, isBa
 function WebviewApp() {
   useEffect(() => {
     signalReady();
-    // Try to get GitHub token silently (don't prompt if not logged in)
-    requestGitHubToken(false).then(({ token }) => {
-      if (token) {
-        setGitHubToken(token);
-      }
-    }).catch(() => {
-      // Ignore — user not logged in to GitHub in VS Code
+    void githubService.restore().catch(() => {
+      // Ignore — user not logged in to GitHub in VS Code.
     });
   }, []);
   return <App />;

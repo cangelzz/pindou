@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
+import { dispatchNewProjectCommand } from "./newProjectCommand";
 
 // The custom editor panel that currently has focus. Used by the
 // pindouverse.undo/redo commands (bound to Ctrl+Z/Y) to forward undo/redo into
@@ -42,10 +43,19 @@ export function activate(context: vscode.ExtensionContext) {
     PindouEditorProvider.register(context, createUntitledProject)
   );
 
-  // Command: new project (opens blank canvas immediately, no save dialog)
+  // Command Palette must use the same in-webview dirty guard as the toolbar.
+  // With no active PindouVerse editor there is no project to protect, so opening
+  // a default untitled project remains the useful fallback.
   context.subscriptions.push(
     vscode.commands.registerCommand("pindouverse.newProject", async () => {
-      await createUntitledProject(context);
+      await dispatchNewProjectCommand({
+        getActivePanel: () => activePindouWebview,
+        clearActivePanel: (panel) => {
+          if (activePindouWebview === panel) activePindouWebview = undefined;
+        },
+        createUntitled: () => createUntitledProject(context),
+        showSendError: (message) => { void vscode.window.showErrorMessage(message); },
+      });
     })
   );
 
@@ -455,7 +465,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource}; connect-src https://api.github.com;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource}; connect-src https://api.github.com https://gist.githubusercontent.com;">
   <link rel="stylesheet" href="${styleUri}">
   <title>PindouVerse</title>
   <style>html,body{height:100%;margin:0;padding:0;overflow:hidden}#root{height:100%;overflow:hidden}#root>div{height:100%!important;max-height:100%!important}</style>

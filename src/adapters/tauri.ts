@@ -32,7 +32,12 @@ export class TauriAdapter implements PlatformAdapter {
     return await invoke<string>("get_autosave_dir");
   }
 
-  async saveSnapshot(project: ProjectFile, label: string): Promise<void> {
+  async clearAutosave(): Promise<void> {
+    await invoke("clear_autosave");
+  }
+
+  async saveSnapshot(project: ProjectFile, label: string, sourceProjectId?: string): Promise<void> {
+    if (sourceProjectId && !project.projectId) project = { ...project, projectId: sourceProjectId };
     await invoke("save_snapshot", { project, label });
   }
 

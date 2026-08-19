@@ -15,6 +15,7 @@ pub fn run() {
             commands::project::save_project,
             commands::project::load_project,
             commands::project::get_autosave_dir,
+            commands::project::clear_autosave,
             commands::project::list_autosaves,
             commands::project::save_snapshot,
             commands::project::list_snapshots,

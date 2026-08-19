@@ -5,6 +5,8 @@ use std::path::Path;
 #[derive(Serialize, Deserialize)]
 pub struct ProjectFile {
     pub version: u32,
+    #[serde(rename = "projectId", skip_serializing_if = "Option::is_none", default)]
+    pub project_id: Option<String>,
     #[serde(rename = "canvasSize")]
     pub canvas_size: CanvasSize,
     #[serde(rename = "canvasData")]
@@ -119,6 +121,19 @@ pub fn load_project(path: String) -> Result<ProjectFile, String> {
     let project: ProjectFile =
         serde_json::from_str(&data).map_err(|e| format!("Parse failed: {}", e))?;
     Ok(project)
+}
+
+#[tauri::command]
+pub fn clear_autosave() -> Result<(), String> {
+    let path = dirs::data_local_dir()
+        .ok_or("Cannot find local data dir")?
+        .join("pindou")
+        .join("autosave")
+        .join("autosave.pindou");
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| format!("Delete autosave failed: {}", e))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -337,6 +352,7 @@ mod tests {
     fn serialises_to_flat_v3_no_indent() {
         let mut p = ProjectFile {
             version: 2,
+            project_id: Some("project-test".into()),
             canvas_size: CanvasSize { width: 2, height: 1 },
             canvas_data: vec![vec![
                 CellData { color_index: None },
@@ -353,6 +369,7 @@ mod tests {
         assert!(!s.contains('\n'), "expected no newlines, got: {}", s);
         assert!(s.contains("\"canvasData\":[[null,5]]"), "actual: {}", s);
         assert!(s.contains("\"version\":3"), "actual: {}", s);
+        assert!(s.contains("\"projectId\":\"project-test\""), "actual: {}", s);
     }
 
     #[test]

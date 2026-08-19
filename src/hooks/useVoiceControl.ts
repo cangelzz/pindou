@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { llmMatchCommand, hasToken, type LLMCommandResult } from "../utils/llmVoice";
+import { getPlatformServices } from "../platform/serviceRegistry";
+import type { VoiceEnhancementResult } from "../platform/services";
 
 export type VoiceCommand =
   | "up"
@@ -69,7 +70,7 @@ const PINYIN_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
   { patterns: /^qu[eè]r[eè]n$/i, command: "confirm" },
 ];
 
-function matchCommand(text: string): VoiceCommand {
+function matchBuiltinCommand(text: string): VoiceCommand {
   const cleaned = text.trim();
 
   // 1. Exact match
@@ -105,7 +106,7 @@ function matchCommand(text: string): VoiceCommand {
 function matchFromAlternatives(result: SpeechRecognitionResult): { command: VoiceCommand; raw: string; confidence: number } {
   for (let i = 0; i < result.length; i++) {
     const alt = result[i];
-    const cmd = matchCommand(alt.transcript);
+    const cmd = matchBuiltinCommand(alt.transcript);
     if (cmd !== "unknown") {
       return { command: cmd, raw: alt.transcript.trim(), confidence: alt.confidence };
     }
@@ -188,14 +189,12 @@ export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: U
       const regexResult = matchFromAlternatives(last);
       const transcript = regexResult.raw;
 
-      if (useLLM && hasToken()) {
-        // LLM enabled: let LLM handle all commands (supports complex + simple)
-        // Skip regex execution to avoid double-firing
-
+      const voiceEnhancement = getPlatformServices().voiceEnhancement;
+      if (useLLM && getPlatformServices().capabilities.ai && voiceEnhancement) {
         const llmPromise = Promise.race([
-          llmMatchCommand(transcript),
-          new Promise<LLMCommandResult>((resolve) =>
-            setTimeout(() => resolve({ command: "unknown", fromLLM: false }), 5000)
+          voiceEnhancement.interpret(transcript),
+          new Promise<VoiceEnhancementResult>((resolve) =>
+            setTimeout(() => resolve({ command: "unknown", enhanced: false }), 5000)
           ),
         ]);
 
@@ -203,7 +202,7 @@ export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: U
           if (llmResult.command !== "unknown") {
             const finalResult: VoiceCommandResult = {
               command: llmResult.command,
-              raw: transcript + " [AI]",
+              raw: transcript,
               confidence: regexResult.confidence,
               repeat: llmResult.repeat,
               gotoCol: llmResult.gotoCol,

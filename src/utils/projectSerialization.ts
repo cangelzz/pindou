@@ -46,26 +46,49 @@ function collapseGrid(grid: CanvasCell[][]): (number | null)[][] {
  */
 export function normalizeProjectFromDisk(rawJson: string): ProjectFile {
   const raw = JSON.parse(rawJson) as any;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected project object");
+  const width = raw.canvasSize?.width;
+  const height = raw.canvasSize?.height;
+  if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0) {
+    throw new Error("Invalid canvasSize");
+  }
   const canvasData = expandGrid(raw.canvasData, "canvasData");
+  const validateDimensions = (grid: CanvasCell[][], ctx: string) => {
+    if (grid.length !== height || grid.some((row) => row.length !== width)) {
+      throw new Error(`${ctx} dimensions do not match canvasSize`);
+    }
+  };
+  validateDimensions(canvasData, "canvasData");
+  if (raw.layers !== undefined && raw.layers !== null && !Array.isArray(raw.layers)) {
+    throw new Error("Expected layers array");
+  }
   const layers: BeadLayer[] | undefined = Array.isArray(raw.layers)
-    ? raw.layers.map((l: any, i: number): BeadLayer => ({
-        id: String(l.id),
-        name: String(l.name ?? "图层"),
-        visible: l.visible !== false,
-        opacity: typeof l.opacity === "number" ? l.opacity : 1,
-        data: expandGrid(l.data, `layers[${i}].data`),
-      }))
+    ? raw.layers.map((l: any, i: number): BeadLayer => {
+        const data = expandGrid(l.data, `layers[${i}].data`);
+        validateDimensions(data, `layers[${i}].data`);
+        return {
+          id: String(l.id),
+          name: String(l.name ?? "图层"),
+          visible: l.visible !== false,
+          opacity: typeof l.opacity === "number" ? l.opacity : 1,
+          data,
+        };
+      })
     : undefined;
 
+  const normalizedAt = new Date().toISOString();
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : normalizedAt;
+  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt;
   return {
     version: 3,
+    projectId: typeof raw.projectId === "string" && raw.projectId ? raw.projectId : undefined,
     canvasSize: raw.canvasSize,
     canvasData,
     layers,
     gridConfig: raw.gridConfig,
     projectInfo: raw.projectInfo,
-    createdAt: raw.createdAt,
-    updatedAt: raw.updatedAt,
+    createdAt,
+    updatedAt,
   };
 }
 
@@ -76,9 +99,14 @@ export function normalizeProjectFromDisk(rawJson: string): ProjectFile {
  */
 export function serializeProjectToV3(project: ProjectFile): string {
   const out: any = {
-    ...project,
     version: 3,
+    ...(project.projectId ? { projectId: project.projectId } : {}),
+    canvasSize: project.canvasSize,
     canvasData: collapseGrid(project.canvasData),
+    gridConfig: project.gridConfig,
+    projectInfo: project.projectInfo,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
   };
   if (project.layers) {
     out.layers = project.layers.map((l) => ({

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "types": ["wicg-file-system-access"]
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../../src/**/*.ts", "../../src/**/*.tsx"],
+  "exclude": ["tests", "e2e", "dist", "dist-test", "vite.config.ts", "playwright.config.ts"]
+}

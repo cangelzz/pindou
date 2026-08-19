@@ -1,183 +1,72 @@
 import type { ProjectFile } from "../types";
+import type { DownloadedGistProject, GistProject, GistRevision, GistUploadResult } from "../platform/services";
+import type { PlatformResult } from "../platform/result";
+import { normalizeProjectFromDisk, serializeProjectToV3 } from "./projectSerialization";
 
-const GIST_API = "https://api.github.com";
+export type { DownloadedGistProject, GistProject, GistRevision, GistUploadResult };
+
+export const GIST_API = "https://api.github.com";
 const PREFIX = "pindouverse__";
 const SUFFIX = ".pindou";
+export const MAX_GIST_PROJECT_BYTES = 25 * 1024 * 1024;
 
-export interface GistProject {
-  gistId: string;
-  name: string;
-  description: string;
-  updatedAt: string;
-  isPublic: boolean;
-}
-
-export interface GistRevision {
-  sha: string;
-  committedAt: string;
-}
-
-function headers(token: string): HeadersInit {
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-}
-
-async function throwOnError(res: Response, action: string): Promise<void> {
-  if (res.ok) return;
-  let detail = "";
-  try {
-    const body = await res.json();
-    detail = body.message || JSON.stringify(body);
-  } catch {
-    detail = res.statusText;
-  }
-  throw new Error(`${action}: ${res.status} ${detail}`);
-}
-
-export function toFilename(name: string): string {
-  return `${PREFIX}${name}${SUFFIX}`;
-}
-
+export function toFilename(name: string): string { return `${PREFIX}${name}${SUFFIX}`; }
 export function fromFilename(filename: string): string | null {
   if (!filename.startsWith(PREFIX) || !filename.endsWith(SUFFIX)) return null;
   return filename.slice(PREFIX.length, -SUFFIX.length);
 }
-
-export async function listProjects(token: string): Promise<GistProject[]> {
-  const projects: GistProject[] = [];
-  let page = 1;
-  while (true) {
-    const res = await fetch(`${GIST_API}/gists?per_page=100&page=${page}`, {
-      headers: headers(token),
-    });
-    if (!res.ok) await throwOnError(res, "获取项目列表失败");
-    const gists: any[] = await res.json();
-    if (gists.length === 0) break;
-    for (const gist of gists) {
-      const files = Object.keys(gist.files || {});
-      for (const fname of files) {
-        const name = fromFilename(fname);
-        if (name !== null) {
-          projects.push({
-            gistId: gist.id,
-            name,
-            description: gist.description || "",
-            updatedAt: gist.updated_at,
-            isPublic: gist.public,
-          });
-          break;
-        }
-      }
-    }
-    if (gists.length < 100) break;
-    page++;
+export function gistDescription(name: string): string { return `PindouVerse: ${name}`; }
+function stable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value as object).sort().map((key) => [key, stable((value as any)[key])]));
+  return value;
+}
+export function canonicalizeProject(project: ProjectFile): string {
+  const normalized = normalizeProjectFromDisk(serializeProjectToV3(project));
+  return JSON.stringify(stable(JSON.parse(serializeProjectToV3(normalized))));
+}
+export function serializeGistProject(project: ProjectFile): string { return serializeProjectToV3(project); }
+export function parseGistProject(content: string): ProjectFile {
+  if (new TextEncoder().encode(content).byteLength > MAX_GIST_PROJECT_BYTES) throw new Error("Gist project exceeds 25MB");
+  return normalizeProjectFromDisk(content);
+}
+export function githubHeaders(token: string, json = false): HeadersInit {
+  return { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(json ? { "Content-Type": "application/json" } : {}) };
+}
+export function pindouFiles(data: any): [string, any][] {
+  if (!data || typeof data !== "object" || !data.files || typeof data.updated_at !== "string") throw new Error("Invalid Gist response");
+  const files = Object.entries(data.files as Record<string, any>).filter(([filename]) => fromFilename(filename) !== null);
+  if (files.length !== 1) throw new Error(files.length ? "Ambiguous PindouVerse Gist" : "No PindouVerse project found in Gist");
+  return files;
+}
+export function projectFromGist(data: any, content?: string): DownloadedGistProject {
+  const [[filename, file]] = pindouFiles(data);
+  const value = content ?? file?.content;
+  if (typeof value !== "string") throw new Error("Missing PindouVerse project content");
+  return { gistId: String(data.id ?? ""), name: fromFilename(filename)!, updatedAt: data.updated_at, version: String(data.history?.[0]?.version ?? data.version ?? ""), project: parseGistProject(value) };
+}
+export function mapGistList(data: unknown): GistProject[] {
+  if (!Array.isArray(data)) throw new Error("Invalid Gist list response");
+  const result: GistProject[] = [];
+  for (const gist of data as any[]) {
+    if (!gist || typeof gist !== "object") continue;
+    const filenames = Object.keys(gist.files ?? {}).filter((item) => fromFilename(item) !== null);
+    if (filenames.length !== 1 || typeof gist.id !== "string" || typeof gist.updated_at !== "string") continue;
+    const filename = filenames[0];
+    result.push({ gistId: gist.id, name: fromFilename(filename)!, description: typeof gist.description === "string" ? gist.description : "", updatedAt: gist.updated_at, isPublic: gist.public === true });
   }
-  return projects;
+  return result;
 }
-
-export async function uploadProject(
-  token: string,
-  name: string,
-  project: ProjectFile,
-  gistId?: string,
-): Promise<{ gistId: string; updatedAt: string }> {
-  const filename = toFilename(name);
-  const content = JSON.stringify(project, null, 2);
-
-  if (gistId) {
-    const res = await fetch(`${GIST_API}/gists/${gistId}`, {
-      method: "PATCH",
-      headers: { ...headers(token), "Content-Type": "application/json" },
-      body: JSON.stringify({
-        description: `PindouVerse: ${name}`,
-        files: { [filename]: { content } },
-      }),
-    });
-    if (!res.ok) await throwOnError(res, "上传失败");
-    const data = await res.json();
-    return { gistId: data.id, updatedAt: data.updated_at };
-  } else {
-    const res = await fetch(`${GIST_API}/gists`, {
-      method: "POST",
-      headers: { ...headers(token), "Content-Type": "application/json" },
-      body: JSON.stringify({
-        description: `PindouVerse: ${name}`,
-        public: false,
-        files: { [filename]: { content } },
-      }),
-    });
-    if (!res.ok) await throwOnError(res, "上传失败");
-    const data = await res.json();
-    return { gistId: data.id, updatedAt: data.updated_at };
-  }
+export function parseRetryAfter(response: Response, now = Date.now()): number | undefined {
+  const retry = response.headers.get("retry-after");
+  if (retry && Number.isFinite(Number(retry))) return Math.max(0, Math.ceil(Number(retry)));
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  return Number.isFinite(reset) && reset > 0 ? Math.max(0, Math.ceil(reset - now / 1000)) : undefined;
 }
-
-export async function downloadProject(
-  token: string,
-  gistId: string,
-): Promise<{ project: ProjectFile; updatedAt: string }> {
-  const res = await fetch(`${GIST_API}/gists/${gistId}`, {
-    headers: headers(token),
-  });
-  if (!res.ok) await throwOnError(res, "下载失败");
-  const data = await res.json();
-  const files = data.files || {};
-  for (const fname of Object.keys(files)) {
-    if (fromFilename(fname) !== null) {
-      const content = files[fname].content;
-      return { project: JSON.parse(content), updatedAt: data.updated_at };
-    }
-  }
-  throw new Error("No .pindou file found in Gist");
-}
-
-export async function deleteProject(token: string, gistId: string): Promise<void> {
-  const res = await fetch(`${GIST_API}/gists/${gistId}`, {
-    method: "DELETE",
-    headers: headers(token),
-  });
-  if (!res.ok) await throwOnError(res, "删除失败");
-}
-
-export async function listRevisions(token: string, gistId: string): Promise<GistRevision[]> {
-  const res = await fetch(`${GIST_API}/gists/${gistId}/commits`, {
-    headers: headers(token),
-  });
-  if (!res.ok) await throwOnError(res, "获取版本历史失败");
-  const commits: any[] = await res.json();
-  return commits.map((c) => ({
-    sha: c.version,
-    committedAt: c.committed_at,
-  }));
-}
-
-export async function downloadRevision(
-  token: string,
-  gistId: string,
-  sha: string,
-): Promise<ProjectFile> {
-  const res = await fetch(`${GIST_API}/gists/${gistId}/${sha}`, {
-    headers: headers(token),
-  });
-  if (!res.ok) await throwOnError(res, "下载版本失败");
-  const data = await res.json();
-  const files = data.files || {};
-  for (const fname of Object.keys(files)) {
-    if (fromFilename(fname) !== null) {
-      return JSON.parse(files[fname].content);
-    }
-  }
-  throw new Error("No .pindou file found in Gist revision");
-}
-
-export async function getGistUpdatedAt(token: string, gistId: string): Promise<string> {
-  const res = await fetch(`${GIST_API}/gists/${gistId}`, {
-    headers: headers(token),
-  });
-  if (!res.ok) await throwOnError(res, "获取Gist状态失败");
-  const data = await res.json();
-  return data.updated_at;
+export function transportError(response: Response, message: string, now = Date.now()): PlatformResult<never> {
+  if (response.status === 401) return { ok: false, code: "authentication", message };
+  if (response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after"))) return { ok: false, code: "rate-limited", message, retryAfterSeconds: parseRetryAfter(response, now) };
+  if (response.status === 403) return { ok: false, code: "permission-denied", message };
+  if (response.status === 404) return { ok: false, code: "invalid-data", message };
+  return { ok: false, code: response.status >= 500 ? "network" : "unknown", message };
 }

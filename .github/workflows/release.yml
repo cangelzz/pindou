@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   compute-version:
     runs-on: ubuntu-latest
@@ -29,8 +33,71 @@ jobs:
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Computed version: ${VERSION}"
 
-  build-and-upload:
+  create-draft-release:
     needs: compute-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release once
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.compute-version.outputs.tag }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          if IS_DRAFT=$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [ "${IS_DRAFT}" != "true" ]; then
+              echo "Release ${TAG} already exists and is published; refusing to overwrite it" >&2
+              exit 1
+            fi
+            echo "Draft release ${TAG} already exists"
+          else
+            gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --draft \
+              --title "PindouVerse ${TAG}" \
+              --notes "PindouVerse ${VERSION}"
+          fi
+
+  build-browser-extensions:
+    needs: [compute-version, create-draft-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build Chrome extension
+        run: npm run ext:build:chrome
+      - name: Build Edge extension
+        run: npm run ext:build:edge
+      - name: Validate extension builds
+        run: npm run ext:validate
+      - name: Package Chrome and Edge extensions
+        run: npm run ext:package
+      - name: Assert versioned extension artifacts
+        env:
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          test "$(node scripts/version.mjs)" = "${VERSION}"
+          test -f "artifacts/pindouverse-chrome-${VERSION}.zip"
+          test -f "artifacts/pindouverse-edge-${VERSION}.zip"
+      - name: Upload extension assets to draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.compute-version.outputs.tag }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          gh release upload "${TAG}" \
+            "artifacts/pindouverse-chrome-${VERSION}.zip" \
+            "artifacts/pindouverse-edge-${VERSION}.zip" \
+            --clobber
+
+  build-and-upload:
+    needs: [compute-version, create-draft-release]
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +136,7 @@ jobs:
           args: --target ${{ matrix.target }}
 
   finalize-release:
-    needs: [compute-version, build-and-upload]
+    needs: [compute-version, create-draft-release, build-and-upload, build-browser-extensions]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

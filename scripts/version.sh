@@ -36,18 +36,16 @@ case "${1:-}" in
     COMMITS=0
     ;;
   *)
-    # Count commits since last tag vMAJOR.MINOR.0
-    LAST_TAG="v${MAJOR}.${MINOR}.0"
-    if git rev-parse "$LAST_TAG" >/dev/null 2>&1; then
-      COMMITS=$(git rev-list "${LAST_TAG}..HEAD" --count)
-    else
-      COMMITS=$(git rev-list HEAD --count)
-    fi
+    # Delegate computation to the cross-platform Node implementation.
+    VERSION=$(node scripts/version.mjs --print)
+    echo "$VERSION"
+    if [[ "${1:-}" != "--apply" ]]; then exit 0; fi
+    COMMITS=${VERSION##*.}
     ;;
 esac
 
-VERSION="${MAJOR}.${MINOR}.${COMMITS}"
-echo "$VERSION"
+VERSION="${VERSION:-${MAJOR}.${MINOR}.${COMMITS}}"
+if [[ "${1:-}" != "--apply" ]]; then echo "$VERSION"; fi
 
 if [[ "${1:-}" == "--apply" || "${1:-}" == --bump-* ]]; then
   # Update package.json

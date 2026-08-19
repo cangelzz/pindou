@@ -13,12 +13,19 @@ import { ChangesCompareDialog } from "./components/Canvas/ChangesCompareDialog";
 import { DialogHost, appPrompt, appAlert, appConfirm } from "./components/Dialog/AppDialog";
 import { useEditorStore } from "./store/editorStore";
 import { getAdapter } from "./adapters";
+import { getPlatformServices } from "./platform/serviceRegistry";
 import type { BlueprintImportResult, ImagePreview } from "./adapters";
 import { MARD_COLORS } from "./data/mard221";
 import { getEffectiveColor, getEffectiveHex, type ColorOverrideMap } from "./utils/colorHelper";
-import { hasToken, clearGitHubToken, requestDeviceCode, pollForToken, type DeviceCodeInfo } from "./utils/llmVoice";
+import type { DeviceCodeInfo, GitHubSession } from "./platform/services";
+import { connectGitHubSession } from "./platform/githubSession";
 import { layerAccentColor } from "./utils/layerColors";
 import type { HistoryAction, HistoryEntry, CanvasData, CanvasSize } from "./types";
+import { createAutosaveScheduler } from "./utils/autosaveScheduler";
+import type { ImageImportAsset } from "./platform/imageImportService";
+import { WebImageImportErrorDialog } from "./components/Import/WebImageImportErrorDialog";
+import { ImageTaskScheduler } from "./platform/imageTaskScheduler";
+import { createImageTaskSchedulerLifecycle } from "./platform/imageTaskSchedulerLifecycle";
 
 /** Render a small color swatch (or hatched empty marker for null) */
 function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; overrides: ColorOverrideMap }) {
@@ -104,10 +111,36 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function App() {
+export interface ImageTaskSource { subscribe(listener: (task: { id: string; createdAt: number }) => void): () => void }
+
+function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
   const [showImport, setShowImport] = useState(false);
+  const [imageImportAsset, setImageImportAsset] = useState<ImageImportAsset>();
+  const [showWebImageError, setShowWebImageError] = useState(false);
+  const schedulerRef = useRef<ImageTaskScheduler | null>(null);
+  useEffect(() => createImageTaskSchedulerLifecycle(
+    () => new ImageTaskScheduler(getPlatformServices().imageImports, {
+      showAsset: (asset) => { setImageImportAsset(asset); setShowImport(true); },
+      showError: () => setShowWebImageError(true),
+    }),
+    imageTaskInbox,
+    schedulerRef,
+  ).setup(), [imageTaskInbox]);
   const [showExport, setShowExport] = useState(false);
   const [showNewCanvas, setShowNewCanvas] = useState(false);
+  const [showNewCanvasWarning, setShowNewCanvasWarning] = useState(false);
+  const newCanvasRequestRef = useRef<{
+    token: number;
+    projectGeneration: number;
+    wasDirty: boolean;
+  } | null>(null);
+  const newCanvasRequestTokenRef = useRef(0);
+  const openRequestRef = useRef<{ token: number; projectGeneration: number; contentRevision: number } | null>(null);
+  const openRequestTokenRef = useRef(0);
+  const [showOpenWarning, setShowOpenWarning] = useState(false);
+  const [pendingAutosave, setPendingAutosave] = useState<import("./types").ProjectFile | null>(null);
+  const autosaveRecoveryStateRef = useRef<{ projectGeneration: number; contentRevision: number } | null>(null);
+  const [showAutosaveRecovery, setShowAutosaveRecovery] = useState(false);
   const [showResize, setShowResize] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showProjectInfo, setShowProjectInfo] = useState(false);
@@ -120,6 +153,16 @@ function App() {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [autosaveDir, setAutosaveDir] = useState<string | null>(null);
+  const services = getPlatformServices();
+  const capabilities = services.capabilities;
+  const isBrowserExtension = capabilities.runtime === "browser-extension";
+  const voiceEnhancement = capabilities.ai ? services.voiceEnhancement : undefined;
+  const aiAvailable = !!voiceEnhancement;
+  const feedbackEnvironment = capabilities.environmentLabel ?? "Desktop";
+  const feedbackPlatform = capabilities.platformLabel
+    ?? (navigator.userAgent.includes("Windows") ? "Windows"
+    : navigator.userAgent.includes("Mac") ? "macOS"
+    : navigator.userAgent.includes("Linux") ? "Linux" : "Unknown");
   const [compareSnapshot, setCompareSnapshot] = useState<{
     canvasData: CanvasData;
     canvasSize: CanvasSize;
@@ -148,30 +191,36 @@ function App() {
   } | null>(null);
   const [rightTab, setRightTab] = useState<"palette" | "stats" | "layers">("palette");
 
-  // GitHub login state
-  const [isLoggedIn, setIsLoggedIn] = useState(hasToken());
+  // GitHub session belongs to the platform service, independently from AI.
+  const [githubSession, setGitHubSession] = useState<GitHubSession | null>(null);
+  useEffect(() => connectGitHubSession(services.github, setGitHubSession), [services.github]);
+  const isLoggedIn = githubSession !== null;
   const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [loginDeviceInfo, setLoginDeviceInfo] = useState<DeviceCodeInfo | null>(null);
   const [loginStatus, setLoginStatus] = useState("");
   const [loginPolling, setLoginPolling] = useState(false);
+  const loginAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => loginAbortRef.current?.abort(), []);
 
   const newCanvas = useEditorStore((s) => s.newCanvas);
   const isDirty = useEditorStore((s) => s.isDirty);
   const cloudGistId = useEditorStore((s) => s.cloudGistId);
+  const cloudSyncStatus = useEditorStore((s) => s.cloudSyncStatus);
   const projectPath = useEditorStore((s) => s.projectPath);
+  const projectGeneration = useEditorStore((s) => s.projectGeneration);
   const projectInfo = useEditorStore((s) => s.projectInfo);
   const baselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
   const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
-  const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
-  const setAiVoiceEnabled = useEditorStore((s) => s.setAiVoiceEnabled);
+  const reportAutosaveResult = useEditorStore((s) => s.reportAutosaveResult);
+  const voiceEnhancementEnabled = useEditorStore((s) => s.voiceEnhancementEnabled);
+  const setVoiceEnhancementEnabled = useEditorStore((s) => s.setVoiceEnhancementEnabled);
   const betaFeatures = useEditorStore((s) => s.betaFeatures);
   const setBetaFeature = useEditorStore((s) => s.setBetaFeature);
   const [showBetaSettings, setShowBetaSettings] = useState(false);
   const saveProject = useEditorStore((s) => s.saveProject);
   const saveProjectAs = useEditorStore((s) => s.saveProjectAs);
-  const openProject = useEditorStore((s) => s.openProject);
   const autoSave = useEditorStore((s) => s.autoSave);
   const canvasSize = useEditorStore((s) => s.canvasSize);
   const resizeCanvas = useEditorStore((s) => s.resizeCanvas);
@@ -208,6 +257,7 @@ function App() {
   const createSnapshot = useEditorStore((s) => s.createSnapshot);
   const loadSnapshots = useEditorStore((s) => s.loadSnapshots);
   const restoreSnapshot = useEditorStore((s) => s.restoreSnapshot);
+  const exportSnapshot = useEditorStore((s) => s.exportSnapshot);
   const deleteSnapshot = useEditorStore((s) => s.deleteSnapshot);
   const undoStack = useEditorStore((s) => s.undoStack);
   const redoStack = useEditorStore((s) => s.redoStack);
@@ -219,6 +269,113 @@ function App() {
 
   const [newW, setNewW] = useState(52);
   const [newH, setNewH] = useState(52);
+
+  const requestNewCanvas = useCallback(() => {
+    if (showNewCanvas || showNewCanvasWarning) return;
+    const token = ++newCanvasRequestTokenRef.current;
+    newCanvasRequestRef.current = { token, projectGeneration, wasDirty: isDirty };
+    if (isDirty) {
+      setShowNewCanvasWarning(true);
+    } else {
+      setShowNewCanvas(true);
+    }
+  }, [isDirty, projectGeneration, showNewCanvas, showNewCanvasWarning]);
+
+  const newCanvasRequestIsCurrent = useCallback(() => {
+    const request = newCanvasRequestRef.current;
+    if (!request || request.token !== newCanvasRequestTokenRef.current) return false;
+    const current = useEditorStore.getState();
+    return current.projectGeneration === request.projectGeneration;
+  }, []);
+
+  const performOpen = useCallback(async () => {
+    const request = openRequestRef.current;
+    if (!request || request.token !== openRequestTokenRef.current) return;
+    const current = useEditorStore.getState();
+    if (current.projectGeneration !== request.projectGeneration || current.contentRevision !== request.contentRevision) {
+      openRequestRef.current = null;
+      return;
+    }
+    const result = await current.openProject();
+    openRequestRef.current = null;
+    if (!result.ok && result.code !== "cancelled") await appAlert("打开项目失败，请重试");
+    else if (!result.ok && result.message) await appAlert(result.message);
+  }, []);
+
+  const requestOpenProject = useCallback(() => {
+    if (showOpenWarning || openRequestRef.current) return;
+    const current = useEditorStore.getState();
+    openRequestRef.current = {
+      token: ++openRequestTokenRef.current,
+      projectGeneration: current.projectGeneration,
+      contentRevision: current.contentRevision,
+    };
+    if (current.isDirty) setShowOpenWarning(true);
+    else void performOpen();
+  }, [performOpen, showOpenWarning]);
+
+  useEffect(() => {
+    const onHostMessage = (event: MessageEvent) => {
+      if (event.data?.type === "requestNewProject") requestNewCanvas();
+      if (event.data?.type === "requestOpenProject") requestOpenProject();
+    };
+    window.addEventListener("message", onHostMessage);
+    return () => window.removeEventListener("message", onHostMessage);
+  }, [requestNewCanvas, requestOpenProject]);
+
+  useEffect(() => {
+    if (!isBrowserExtension || services.recovery.availability !== "available") return;
+    let cancelled = false;
+    const initial = useEditorStore.getState();
+    const intent = { projectGeneration: initial.projectGeneration, contentRevision: initial.contentRevision };
+    void services.recovery.loadAutosave().then(async (result) => {
+      if (cancelled) return;
+      if (!result.ok) { await appAlert("自动备份读取失败，已继续打开空白项目"); return; }
+      const current = useEditorStore.getState();
+      if (current.projectGeneration !== intent.projectGeneration || current.contentRevision !== intent.contentRevision || current.isDirty) return;
+      if (result.value) {
+        autosaveRecoveryStateRef.current = intent;
+        setPendingAutosave(result.value);
+        setShowAutosaveRecovery(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isBrowserExtension, services.recovery]);
+
+  const dismissAutosaveRecovery = useCallback(async () => {
+    const result = await services.recovery.clearAutosave?.();
+    if (result && !result.ok) { await appAlert("删除自动备份失败，请重试"); return; }
+    autosaveRecoveryStateRef.current = null;
+    setPendingAutosave(null);
+    setShowAutosaveRecovery(false);
+  }, [services.recovery]);
+
+  const applyAutosaveRecovery = useCallback(async () => {
+    if (!pendingAutosave) return;
+    const intent = autosaveRecoveryStateRef.current;
+    const current = useEditorStore.getState();
+    if (!intent || current.projectGeneration !== intent.projectGeneration || current.contentRevision !== intent.contentRevision || current.isDirty) {
+      await appAlert("项目已发生修改，自动备份未恢复");
+      return;
+    }
+    current.restoreAutosave(pendingAutosave);
+    const result = await services.recovery.clearAutosave?.();
+    if (result && !result.ok) await appAlert("内容已恢复，但删除自动备份失败，下次启动可能再次提示");
+    autosaveRecoveryStateRef.current = null;
+    setPendingAutosave(null);
+    setShowAutosaveRecovery(false);
+  }, [pendingAutosave, services.recovery]);
+
+  useEffect(() => {
+    if (!showAutosaveRecovery) return;
+    const initialGeneration = useEditorStore.getState().projectGeneration;
+    return useEditorStore.subscribe((state) => {
+      if (state.projectGeneration === initialGeneration) return;
+      autosaveRecoveryStateRef.current = null;
+      setPendingAutosave(null);
+      setShowAutosaveRecovery(false);
+    });
+  }, [showAutosaveRecovery]);
 
   // Resizable right panel
   const [rightPanelWidth, setRightPanelWidth] = useState(224);
@@ -262,16 +419,30 @@ function App() {
 
   // Auto-save every 60 seconds
   const autoSaveRef = useRef(autoSave);
+  const reportAutosaveResultRef = useRef(reportAutosaveResult);
   autoSaveRef.current = autoSave;
+  reportAutosaveResultRef.current = reportAutosaveResult;
   useEffect(() => {
     if (!autoSaveEnabled) return;
-    const id = setInterval(() => autoSaveRef.current(), 60_000);
-    return () => clearInterval(id);
+    let reportedError: string | null = null;
+    const scheduler = createAutosaveScheduler(
+      () => autoSaveRef.current(),
+      async (result) => {
+        reportAutosaveResultRef.current(result);
+        if (result.ok) { reportedError = null; return; }
+        if (result.code === "cancelled" || reportedError === result.code) return;
+        reportedError = result.code;
+        await appAlert("自动备份失败，将在稍后重试");
+      },
+    );
+    const id = setInterval(() => { void scheduler.tick(); }, 60_000);
+    return () => { clearInterval(id); scheduler.dispose(); };
   }, [autoSaveEnabled]);
 
   // Resolve the autosave directory path lazily, so the (i) tooltip in the
   // snapshot dialog can show the actual on-disk location.
   useEffect(() => {
+    if (isBrowserExtension) return;
     if (!showSnapshots) return;
     if (autosaveDir !== null) return;
     let cancelled = false;
@@ -286,14 +457,19 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [showSnapshots, autosaveDir]);
+  }, [showSnapshots, autosaveDir, isBrowserExtension]);
 
   // Refresh the snapshot list when the 版本管理 dialog opens, but only if
   // the store is empty — preserves test-injected state.
   useEffect(() => {
-    if (showSnapshots && snapshots.length === 0) {
-      loadSnapshots();
-    }
+    if (!showSnapshots || snapshots.length > 0) return;
+    let cancelled = false;
+    void loadSnapshots().then(async (result) => {
+      if (!cancelled && !result.ok && result.code !== "cancelled") {
+        await appAlert("加载快照列表失败，请重试");
+      }
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSnapshots]);
 
@@ -317,63 +493,25 @@ function App() {
     }
 
     document.title = title;
-    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-      getCurrentWindow().setTitle(title).catch(() => {});
-    }).catch(() => {});
+    services.window?.setTitle(title);
   }, [projectPath, projectInfo?.title]);
 
-  // Warn before closing with unsaved changes
+  // Browser owns beforeunload; desktop hosts may add a native close guard.
   useEffect(() => {
-    // Browser/webview: beforeunload
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (useEditorStore.getState().isDirty) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!useEditorStore.getState().isDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-
-    // Tauri desktop: listen for window close request
-    let unlisten: (() => void) | null = null;
-    let isShowingDialog = false;
-    let cancelled = false;
-    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-      if (cancelled) return;
-      const win = getCurrentWindow();
-      win.onCloseRequested(async (event) => {
-        if (!useEditorStore.getState().isDirty) return;
-        if (isShowingDialog) { event.preventDefault(); return; }
-        event.preventDefault();
-        isShowingDialog = true;
-        let shouldClose = false;
-        try {
-          const { ask } = await import("@tauri-apps/plugin-dialog");
-          shouldClose = await ask("有未保存的修改，确定要退出吗？", {
-            title: "退出确认",
-            kind: "warning",
-          });
-        } catch {
-          // Dialog failed — allow close rather than leaving the window stuck
-          shouldClose = true;
-        } finally {
-          isShowingDialog = false;
-        }
-        if (shouldClose) {
-          unlisten?.();
-          unlisten = null;
-          await win.close();
-        }
-      }).then((fn) => { unlisten = fn; });
-    }).catch(() => {
-      // Not in Tauri environment
-    });
-
+    const disposeNative = services.window?.installDirtyCloseGuard(
+      () => useEditorStore.getState().isDirty,
+    );
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
-      cancelled = true;
-      unlisten?.();
+      disposeNative?.();
     };
-  }, []);
+  }, [services.window]);
 
   // Ctrl+S shortcut
   useEffect(() => {
@@ -387,12 +525,12 @@ function App() {
         }
       } else if (e.ctrlKey && e.key === "o") {
         e.preventDefault();
-        openProject();
+        requestOpenProject();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveProject, saveProjectAs, openProject]);
+  }, [saveProject, saveProjectAs, requestOpenProject]);
 
   const handleStatColorActivate = (colorIndex: number) => {
     setSelectedColor(colorIndex);
@@ -402,74 +540,25 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen bg-white text-gray-800">
-      {/* Top menu bar */}
-      <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 border-b text-xs select-none">
+      {/* Top menu bar: shared by every platform; IDs are the cross-platform contract. */}
+      <div data-testid="top-menu" className="flex items-center gap-1 px-2 py-1 bg-gray-100 border-b text-xs select-none">
         <span className="font-bold text-sm mr-2">🎨 拼豆宇宙</span>
+        <button data-menu-id="new" onClick={requestNewCanvas} className="px-2 py-1 rounded hover:bg-gray-200">新建</button>
+        <button data-menu-id="resize" onClick={() => { setResizeW(canvasSize.width); setResizeH(canvasSize.height); setResizeAnchorRow(0); setResizeAnchorCol(0); setShowResize(true); }} className="px-2 py-1 rounded hover:bg-gray-200">调整画布</button>
+        <button data-menu-id="open" onClick={requestOpenProject} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+O">打开</button>
+        <button data-menu-id="save" onClick={() => saveProject()} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+S">保存</button>
+        <button data-menu-id="save-as" onClick={() => saveProjectAs()} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+Shift+S" aria-label="保存到新文件">另存为</button>
+        <button data-menu-id="project-info" onClick={() => setShowProjectInfo(true)} className="px-2 py-1 rounded hover:bg-gray-200">项目信息</button>
+        <div data-separator-id="files" className="border-l mx-1 h-4" />
+        <button data-menu-id="import-image" onClick={() => setShowImport(true)} className="px-2 py-1 rounded hover:bg-gray-200">导入图片</button>
         <button
-          onClick={() => setShowNewCanvas(true)}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-        >
-          新建
-        </button>
-        <button
-          onClick={() => {
-            setResizeW(canvasSize.width);
-            setResizeH(canvasSize.height);
-            setResizeAnchorRow(0);
-            setResizeAnchorCol(0);
-            setShowResize(true);
-          }}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-        >
-          调整画布
-        </button>
-        <button
-          onClick={() => openProject()}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-          title="Ctrl+O"
-        >
-          打开
-        </button>
-        <button
-          onClick={() => saveProject()}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-          title="Ctrl+S"
-        >
-          保存
-        </button>
-        <button
-          onClick={() => saveProjectAs()}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-          title="Ctrl+Shift+S"
-          aria-label="保存到新文件"
-        >
-          另存为
-        </button>
-        <button
-          onClick={() => setShowProjectInfo(true)}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-          title="项目信息"
-        >
-          项目信息
-        </button>
-        <div className="border-l mx-1 h-4" />
-        <button
-          onClick={() => setShowImport(true)}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-        >
-          导入图片
-        </button>
-        <button
+          data-menu-id="import-blueprint"
           onClick={async () => {
             const adapter = getAdapter();
             const path = await adapter.showOpenDialog([
               { name: "Image", extensions: ["png", "jpg", "jpeg", "bmp"] },
             ]);
             if (!path) return;
-
-            // Fast pre-detection + thumbnail in parallel. Slow-spinner state
-            // here so the user has feedback even though detect_blueprint_dims
-            // returns in <1s for typical inputs.
             setBlueprintImporting(true);
             setBlueprintProgress("正在分析图纸结构...");
             try {
@@ -479,143 +568,96 @@ function App() {
               ]);
               setBlueprintImporting(false);
               setBlueprintDimsPending({
-                path,
-                preview,
+                path, preview,
                 detectedWidth: dims.width,
                 detectedHeight: dims.height,
                 detectedBBox: dims.bbox,
                 hasMetadata: dims.hasMetadata,
               });
-            } catch (e) {
+            } catch (error) {
               setBlueprintImporting(false);
-              await appAlert(`图纸分析失败: ${e}`);
+              await appAlert(`图纸分析失败: ${error}`);
             }
           }}
           disabled={blueprintImporting}
           className={`px-2 py-1 rounded hover:bg-gray-200 inline-flex items-center gap-1 ${blueprintImporting ? "opacity-50" : ""}`}
         >
-          导入图纸
-          <span
-            className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded font-semibold tracking-wider"
-            title="自动识别尚在实验阶段，建议核对网格尺寸"
-          >
-            BETA
-          </span>
+          导入图纸 <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded font-semibold tracking-wider">BETA</span>
         </button>
-        <button
-          onClick={() => setShowExport(true)}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-        >
-          导出
-        </button>
-        <div className="border-l mx-1 h-4" />
-        <button
-          onClick={() => setShowHistory(true)}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-          title="操作历史"
-        >
-          历史记录
-        </button>
-        {baselineCanvasData && (
-          <button
-            onClick={() => setShowChangesCompare(true)}
-            className="px-2 py-1 rounded hover:bg-gray-200"
-            title="对比变更"
-          >
-            对比
-          </button>
-        )}
-        {isLoggedIn && (
-          <>
-            <button
-              onClick={() => setShowCloud(true)}
-              className="px-2 py-1 rounded hover:bg-gray-200"
-            >
-              云端
-            </button>
-            {cloudGistId && (
-              <span className={`text-xs ${isDirty ? "text-orange-500" : "text-green-600"}`}>
-                {isDirty ? "☁️●" : "☁️✓"}
-              </span>
-            )}
-          </>
-        )}
-        <button
-          onClick={() => setShowSnapshots(true)}
-          className="px-2 py-1 rounded hover:bg-gray-200"
-        >
-          版本
-        </button>
+        <button data-menu-id="export" onClick={() => setShowExport(true)} className="px-2 py-1 rounded hover:bg-gray-200">导出</button>
+        <div data-separator-id="history" className="border-l mx-1 h-4" />
+        <button data-menu-id="history" onClick={() => setShowHistory(true)} className="px-2 py-1 rounded hover:bg-gray-200">历史记录</button>
+        {baselineCanvasData && <button data-menu-id="compare" onClick={() => setShowChangesCompare(true)} className="px-2 py-1 rounded hover:bg-gray-200">对比</button>}
+        {isLoggedIn && <button data-menu-id="cloud" onClick={() => setShowCloud(true)} className="px-2 py-1 rounded hover:bg-gray-200">云端</button>}
+        {isLoggedIn && cloudGistId && <span data-menu-id="cloud-status" data-cloud-status={cloudSyncStatus} className={`text-xs ${cloudSyncStatus === "remote-newer" ? "text-red-600" : cloudSyncStatus === "local-changes" ? "text-orange-500" : "text-green-600"}`}>{cloudSyncStatus === "synced" ? "☁️✓" : "☁️●"}</span>}
+        <button data-menu-id="version" onClick={() => setShowSnapshots(true)} className="px-2 py-1 rounded hover:bg-gray-200">版本</button>
         <div className="flex-1" />
-        {/* GitHub login/logout */}
         {isLoggedIn ? (
-          <button
-            onClick={() => {
-              clearGitHubToken();
-              setIsLoggedIn(false);
-            }}
-            className="px-2 py-1 rounded hover:bg-gray-200 text-green-600 text-xs"
-            title="点击登出 GitHub"
-          >
-            ✓ GitHub 已登录
-          </button>
+          <button data-menu-id="logged-in" onClick={async () => {
+            const result = await services.github.logout();
+            if (!result.ok) await appAlert("登出失败，未能删除本地 GitHub 凭据，请重试");
+          }} className="px-2 py-1 rounded hover:bg-gray-200 text-green-600 text-xs" title="点击登出 GitHub">✓ GitHub 已登录</button>
         ) : (
-          <button
-            onClick={async () => {
-              // VS Code webview provides a native login via window.__pindouLoginGitHub
-              const nativeLogin = (window as any).__pindouLoginGitHub;
-              if (nativeLogin) {
-                const ok = await nativeLogin();
-                if (ok) setIsLoggedIn(true);
-                return;
+          <button data-menu-id="login" disabled={services.github.availability === "unsupported" || services.github.configured === false} title={services.github.availability === "unsupported" ? "功能初始化中" : services.github.configured === false ? "未配置 GitHub Client ID" : "登录 GitHub"} onClick={async () => {
+            if (!services.github.startDeviceFlow || !services.github.pollDeviceFlow) {
+              await services.github.login();
+              return;
+            }
+            const controller = new AbortController();
+            loginAbortRef.current?.abort();
+            loginAbortRef.current = controller;
+            const isCurrent = () => loginAbortRef.current === controller && !controller.signal.aborted;
+            setShowLoginDialog(true);
+            setLoginDeviceInfo(null);
+            setLoginPolling(false);
+            setLoginStatus("正在请求验证码...");
+            try {
+              const started = await services.github.startDeviceFlow(controller.signal);
+              if (!isCurrent()) return;
+              if (!started.ok) { setLoginStatus("请求失败"); return; }
+              setLoginDeviceInfo(started.value);
+              setLoginStatus("请在浏览器中输入验证码");
+              const opened = await services.externalLinks.open(started.value.verification_uri);
+              if (!isCurrent()) return;
+              if (!opened.ok) setLoginStatus("请复制上方链接到浏览器继续授权");
+              setLoginPolling(true);
+              const result = await services.github.pollDeviceFlow(
+                started.value,
+                (status) => { if (isCurrent()) setLoginStatus(status); },
+                controller.signal,
+              );
+              if (!isCurrent()) return;
+              if (result.ok) setShowLoginDialog(false);
+            } catch {
+              if (isCurrent()) setLoginStatus("请求失败");
+            } finally {
+              if (loginAbortRef.current === controller) {
+                loginAbortRef.current = null;
+                setLoginPolling(false);
               }
-              // Tauri/desktop: use device code flow
-              setShowLoginDialog(true);
-              setLoginStatus("正在请求验证码...");
-              setLoginDeviceInfo(null);
-              requestDeviceCode().then((info) => {
-                setLoginDeviceInfo(info);
-                setLoginStatus("请在浏览器中输入验证码");
-                import("@tauri-apps/plugin-shell").then(({ open }) => open(info.verification_uri)).catch(() => {
-                  window.open(info.verification_uri, "_blank");
-                });
-                setLoginPolling(true);
-                pollForToken(info.device_code, info.interval, info.expires_in, setLoginStatus).then((ok) => {
-                  setLoginPolling(false);
-                  if (ok) {
-                    setIsLoggedIn(true);
-                    setTimeout(() => setShowLoginDialog(false), 1000);
-                  }
-                });
-              }).catch((e) => {
-                setLoginStatus(`请求失败: ${e}`);
-              });
-            }}
-            className="px-2 py-1 rounded hover:bg-gray-200 text-gray-500 text-xs"
-          >
-            登录 GitHub
-          </button>
+            }
+          }} className="px-2 py-1 rounded hover:bg-gray-200 disabled:opacity-50 text-gray-500 text-xs">登录 GitHub</button>
         )}
-        <button
-          onClick={() => {
-            const platform = navigator.userAgent.includes("Windows") ? "Windows"
-              : navigator.userAgent.includes("Mac") ? "macOS"
-              : navigator.userAgent.includes("Linux") ? "Linux" : "Unknown";
-            const appVersion = (window as any).__pindouVersion || "dev";
-            const isVSCode = typeof (window as any).acquireVsCodeApi === "function"
-              || document.body.dataset.vscodeContext !== undefined;
-            const env = isVSCode ? "VS Code Extension" : "Desktop (Tauri)";
-            const canvas = `${canvasSize.width}x${canvasSize.height}`;
-            const body = encodeURIComponent(
-              `**描述问题**\n\n\n**复现步骤**\n1. \n2. \n3. \n\n**环境信息**\n- 版本: ${appVersion}\n- 平台: ${platform}\n- 运行环境: ${env}\n- 画布: ${canvas}\n`
-            );
-            const url = `https://github.com/cangelzz/pindouverse/issues/new?body=${body}`;
-            import("@tauri-apps/plugin-shell").then(({ open }) => open(url)).catch(() => window.open(url, "_blank"));
-          }}
-          className="px-2 py-1 rounded hover:bg-gray-200 text-gray-400 text-xs"
-        >
-          反馈
-        </button>
+        <button data-menu-id="feedback" data-feedback-environment={feedbackEnvironment} onClick={() => {
+          const appVersion = (window as any).__pindouVersion || "dev";
+          const canvas = `${canvasSize.width}x${canvasSize.height}`;
+          const body = encodeURIComponent(`**描述问题**
+
+
+**复现步骤**
+1.
+2.
+3.
+
+**环境信息**
+- 版本: ${appVersion}
+- 平台: ${feedbackPlatform}
+- 运行环境: ${feedbackEnvironment}
+- 画布: ${canvas}
+`);
+          const url = `https://github.com/cangelzz/pindouverse/issues/new?body=${body}`;
+          void services.externalLinks.open(url).then((result) => { if (!result.ok) window.open(url, "_blank"); });
+        }} className="px-2 py-1 rounded hover:bg-gray-200 text-gray-400 text-xs">反馈</button>
       </div>
 
       {/* Main content */}
@@ -957,7 +999,26 @@ function App() {
       </div>
 
       {/* Dialogs */}
-      {showImport && <ImageImportDialog onClose={() => setShowImport(false)} />}
+      {showImport && <ImageImportDialog
+        initialAsset={imageImportAsset}
+        onInitialAssetReleased={(assetId) => {
+          if (imageImportAsset?.source === "web-context-menu") schedulerRef.current?.completeAsset(assetId);
+          else getPlatformServices().imageImports.consumeAsset(assetId);
+        }}
+        onClose={() => {
+          const wasLocalFallback = imageImportAsset?.source === "local";
+          setShowImport(false); setImageImportAsset(undefined);
+          if (wasLocalFallback) schedulerRef.current?.completeError();
+        }}
+      />}
+      {showWebImageError && <WebImageImportErrorDialog
+        onClose={() => { setShowWebImageError(false); schedulerRef.current?.completeError(); }}
+        onChooseLocal={() => {
+          void getPlatformServices().images.chooseLocalImage().then((result) => {
+            if (result.ok) { setShowWebImageError(false); setImageImportAsset(result.value); setShowImport(true); }
+          });
+        }}
+      />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
       {showProjectInfo && <ProjectInfoDialog onClose={() => setShowProjectInfo(false)} />}
       {showChangesCompare && <ChangesCompareDialog onClose={() => setShowChangesCompare(false)} />}
@@ -1088,6 +1149,67 @@ function App() {
         />
       )}
 
+      {showOpenWarning && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
+            <h2 className="font-semibold text-sm mb-2">未保存的修改</h2>
+            <p className="text-xs text-gray-600 mb-4">当前项目有未保存的修改，继续打开会丢失这些修改。</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { setShowOpenWarning(false); openRequestRef.current = null; }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">取消</button>
+              <button onClick={() => { setShowOpenWarning(false); void performOpen(); }} className="px-3 py-1.5 bg-red-500 text-white text-xs rounded hover:bg-red-600">继续</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAutosaveRecovery && pendingAutosave && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" data-testid="autosave-recovery-dialog">
+          <div className="bg-white rounded-lg shadow-xl w-[380px] p-4">
+            <h2 className="font-semibold text-sm mb-2">检测到未恢复的自动备份</h2>
+            <p className="text-xs text-gray-600 mb-4">可以恢复上次未保存的内容，恢复后需另存为新文件。</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { autosaveRecoveryStateRef.current = null; setPendingAutosave(null); setShowAutosaveRecovery(false); }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">稍后</button>
+              <button onClick={() => { void dismissAutosaveRecovery(); }} className="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50">删除备份</button>
+              <button onClick={() => { void applyAutosaveRecovery(); }} className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600">恢复</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unsaved changes guard for creating a new project. */}
+      {showNewCanvasWarning && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
+            <h2 className="font-semibold text-sm mb-2">未保存的修改</h2>
+            <p className="text-xs text-gray-600 mb-4">当前项目有未保存的修改，继续新建会丢失这些修改。</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowNewCanvasWarning(false);
+                  newCanvasRequestRef.current = null;
+                }}
+                className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewCanvasWarning(false);
+                  if (!newCanvasRequestIsCurrent()) {
+                    newCanvasRequestRef.current = null;
+                    return;
+                  }
+                  setShowNewCanvas(true);
+                }}
+                className="px-3 py-1.5 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+              >
+                继续
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* New Canvas Dialog */}
       {showNewCanvas && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -1135,6 +1257,18 @@ function App() {
               <div className="flex gap-2 mt-2">
                 <button
                   onClick={() => {
+                    if (!newCanvasRequestIsCurrent()) {
+                      setShowNewCanvas(false);
+                      newCanvasRequestRef.current = null;
+                      return;
+                    }
+                    const request = newCanvasRequestRef.current;
+                    if (request && !request.wasDirty && useEditorStore.getState().isDirty) {
+                      request.wasDirty = true;
+                      setShowNewCanvas(false);
+                      setShowNewCanvasWarning(true);
+                      return;
+                    }
                     // When the host (currently VS Code) manages document tabs,
                     // route through it so a fresh untitled_<ts>.pindou tab opens.
                     // Otherwise the current tab keeps the previously opened file's
@@ -1148,13 +1282,17 @@ function App() {
                       newCanvas(newW, newH);
                     }
                     setShowNewCanvas(false);
+                    newCanvasRequestRef.current = null;
                   }}
                   className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
                 >
                   创建
                 </button>
                 <button
-                  onClick={() => setShowNewCanvas(false)}
+                  onClick={() => {
+                    setShowNewCanvas(false);
+                    newCanvasRequestRef.current = null;
+                  }}
                   className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
                 >
                   取消
@@ -1284,7 +1422,9 @@ function App() {
             <div className="p-4 flex flex-col gap-3 overflow-y-auto">
               {/* Local-only notice (persistent, info-pill style) */}
               <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1">
-                📍 快照保存在本地应用数据目录，换设备或重装应用会丢失
+                {isBrowserExtension
+                  ? "快照仅保存在当前浏览器配置中；清理浏览器数据或卸载扩展会删除本地备份和快照。"
+                  : "📍 快照保存在本地应用数据目录，换设备或重装应用会丢失"}
               </div>
 
               {/* Create snapshot */}
@@ -1298,8 +1438,9 @@ function App() {
                 />
                 <button
                   onClick={async () => {
-                    await createSnapshot(snapshotLabel || "手动保存");
-                    setSnapshotLabel("");
+                    const result = await createSnapshot(snapshotLabel || "手动保存");
+                    if (result.ok) setSnapshotLabel("");
+                    else if (result.code !== "cancelled") await appAlert("创建快照失败，请重试");
                   }}
                   className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
                 >
@@ -1307,8 +1448,9 @@ function App() {
                 </button>
                 <span
                   className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-300 text-gray-500 text-[10px] cursor-help select-none"
-                  title={
-                    autosaveDir
+                  title={isBrowserExtension
+                    ? "快照保存在当前浏览器配置中。清理浏览器数据或卸载扩展会删除本地备份和快照。"
+                    : autosaveDir
                       ? `保存位置：${autosaveDir}\n如需长期保存请用列表中的「另存为」`
                       : "快照保存在本机的应用数据目录。如需长期保存请用列表中的「另存为」"
                   }
@@ -1335,10 +1477,12 @@ function App() {
                       <button
                         onClick={async () => {
                           try {
-                            const proj = await getAdapter().loadSnapshot(s.path);
+                            const result = await getPlatformServices().recovery.loadSnapshot(s.path);
+                            if (!result.ok) throw result.cause ?? new Error(result.code);
+                            const project = "project" in result.value ? result.value.project : result.value;
                             setCompareSnapshot({
-                              canvasData: proj.canvasData,
-                              canvasSize: proj.canvasSize,
+                              canvasData: project.canvasData,
+                              canvasSize: project.canvasSize,
                               name: s.name,
                             });
                           } catch (e) {
@@ -1351,8 +1495,13 @@ function App() {
                       </button>
                       <button
                         onClick={async () => {
-                          await restoreSnapshot(s.path);
-                          setShowSnapshots(false);
+                          if (!s.sourceProjectId || s.sourceProjectId !== useEditorStore.getState().projectId) {
+                            const proceed = await appConfirm("此快照无法确认属于当前项目，恢复后将需要另存为并解除云端关联。", { title: "恢复快照" });
+                            if (!proceed) return;
+                          }
+                          const result = await restoreSnapshot(s);
+                          if (result.ok) setShowSnapshots(false);
+                          else if (result.code !== "cancelled") await appAlert("恢复快照失败，请检查快照数据");
                         }}
                         className="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 shrink-0"
                       >
@@ -1360,22 +1509,9 @@ function App() {
                       </button>
                       <button
                         onClick={async () => {
-                          try {
-                            const project = await getAdapter().loadSnapshot(s.path);
-                            const suggested = `${s.name.replace(/[\\/:*?"<>|]/g, "_")}.pindou`;
-                            const target = await getAdapter().showSaveDialog(
-                              [{ name: "PinDou Project", extensions: ["pindou"] }],
-                              suggested,
-                            );
-                            if (!target) return;
-                            await getAdapter().writeProjectFile(target, project);
-                            await appAlert(`已导出到: ${target}`, { title: "导出成功" });
-                          } catch (e) {
-                            await appAlert(
-                              `导出失败: ${e instanceof Error ? e.message : String(e)}`,
-                              { title: "导出失败" },
-                            );
-                          }
+                          const result = await exportSnapshot(s.path, s.name);
+                          if (result.ok) await appAlert("快照已导出", { title: "导出成功" });
+                          else if (result.code !== "cancelled") await appAlert("导出快照失败，请重试", { title: "导出失败" });
                         }}
                         className="px-2 py-1 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 shrink-0"
                         title="导出为独立 .pindou 文件"
@@ -1495,45 +1631,19 @@ function App() {
 
       {showCloud && <CloudDialog onClose={() => setShowCloud(false)} />}
 
-      {/* GitHub Login Dialog */}
       {showLoginDialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
             <h3 className="font-semibold text-sm mb-2">登录 GitHub</h3>
-            {loginDeviceInfo ? (
-              <>
-                <p className="text-xs text-gray-500 mb-3">
-                  请在浏览器中打开下方链接，输入验证码完成授权：
-                </p>
-                <div className="flex flex-col items-center gap-2 mb-3">
-                  <a
-                    href={loginDeviceInfo.verification_uri}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 text-xs underline"
-                  >
-                    {loginDeviceInfo.verification_uri}
-                  </a>
-                  <div className="text-2xl font-mono font-bold tracking-widest bg-gray-100 px-4 py-2 rounded select-all">
-                    {loginDeviceInfo.user_code}
-                  </div>
-                </div>
-                <p className="text-xs text-center text-gray-500">
-                  {loginPolling && <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-1" />}
-                  {loginStatus}
-                </p>
-              </>
-            ) : (
-              <p className="text-xs text-gray-500 text-center py-4">{loginStatus}</p>
-            )}
-            <div className="flex justify-end mt-3">
-              <button
-                onClick={() => { setShowLoginDialog(false); setLoginDeviceInfo(null); }}
-                className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
-              >
-                {loginPolling ? "取消" : "关闭"}
-              </button>
-            </div>
+            {loginDeviceInfo ? <>
+              <p className="text-xs text-gray-500 mb-3">请在浏览器中打开下方链接，输入验证码完成授权：</p>
+              <div className="flex flex-col items-center gap-2 mb-3">
+                <a href={loginDeviceInfo.verification_uri} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-xs underline">{loginDeviceInfo.verification_uri}</a>
+                <div className="text-2xl font-mono font-bold tracking-widest bg-gray-100 px-4 py-2 rounded select-all">{loginDeviceInfo.user_code}</div>
+              </div>
+            </> : null}
+            <p className="text-xs text-center text-gray-500">{loginPolling && <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-1" />}{loginStatus}</p>
+            <div className="flex justify-end mt-3"><button onClick={() => { const current = loginAbortRef.current; loginAbortRef.current = null; current?.abort(); setLoginPolling(false); setShowLoginDialog(false); setLoginDeviceInfo(null); setLoginStatus(""); }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">{loginPolling ? "取消" : "关闭"}</button></div>
           </div>
         </div>
       )}
@@ -1558,18 +1668,19 @@ function App() {
           />
           自动备份
         </label>
-        {betaFeatures.aiVoice && (
+        {aiAvailable && betaFeatures.voiceEnhancement && (
         <label className="flex items-center gap-1 cursor-pointer">
           <input
             type="checkbox"
-            checked={aiVoiceEnabled}
-            onChange={(e) => setAiVoiceEnabled(e.target.checked)}
+            checked={voiceEnhancementEnabled}
+            onChange={(e) => setVoiceEnhancementEnabled(e.target.checked)}
             className="w-3 h-3"
           />
-          AI语音
+          {voiceEnhancement!.labels.toggle}
         </label>
         )}
         <button
+          data-testid="beta-settings"
           onClick={() => setShowBetaSettings(true)}
           className="text-[10px] text-gray-400 hover:text-gray-600 underline"
         >
@@ -1593,7 +1704,7 @@ function App() {
             </div>
             <p className="text-[10px] text-gray-400 mb-3">实验性功能，可能不稳定。开启后在菜单栏中显示对应按钮。</p>
             <div className="flex flex-col gap-2 text-xs">
-              {Object.entries(betaFeatures).map(([key, value]) => (
+              {Object.entries(betaFeatures).filter(([key]) => key !== "voiceEnhancement" || aiAvailable).map(([key, value]) => (
                 <label key={key} className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1603,8 +1714,7 @@ function App() {
                   />
                   <span className="text-gray-600">{
                     key === "blueprintImport" ? "图纸导入（从导出的图纸还原画布）" :
-                    key === "aiVoice" ? "AI 语音增强（GitHub Models LLM）" :
-                    key
+                    key === "voiceEnhancement" ? voiceEnhancement!.labels.betaSetting : key
                   }</span>
                 </label>
               ))}

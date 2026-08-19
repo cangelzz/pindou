@@ -72,6 +72,7 @@ export interface SnapshotInfo {
   path: string;
   name: string;
   modified: string;
+  sourceProjectId?: string;
 }
 
 // ─── Platform adapter interface ──────────────────────────────────
@@ -150,9 +151,10 @@ export interface PlatformAdapter {
 
   // Auto-save
   getAutosaveDir(): Promise<string>;
+  clearAutosave?(): Promise<void>;
 
   // Snapshots
-  saveSnapshot(project: ProjectFile, label: string): Promise<void>;
+  saveSnapshot(project: ProjectFile, label: string, sourceProjectId?: string): Promise<void>;
   listSnapshots(): Promise<SnapshotInfo[]>;
   loadSnapshot(path: string): Promise<ProjectFile>;
   deleteSnapshot(path: string): Promise<void>;

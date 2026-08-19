@@ -126,6 +126,7 @@ export function computeLegendLayout(
   width: number,
   cellSize: number,
   options: LegendSectionOptions = {},
+  createCanvas: () => HTMLCanvasElement = () => document.createElement("canvas"),
 ): LegendLayout {
   const includeByCount = options.includeByCount !== false; // default true
   const includeByName = options.includeByName === true;    // default false
@@ -135,7 +136,7 @@ export function computeLegendLayout(
   const sectionTitleH = Math.floor(cellSize * LEGEND_SCALE * 1.3);
 
   // Measure with an offscreen canvas — works in browser and in VS Code webview
-  const offscreen = document.createElement("canvas");
+  const offscreen = createCanvas();
   const ctx = offscreen.getContext("2d")!;
   ctx.font = `${codeFontPx(cellSize)}px ${LEGEND_FONT_FAMILY}`;
 
@@ -146,7 +147,9 @@ export function computeLegendLayout(
       rightW: Math.ceil(ctx.measureText(`${it.count}`).width + LEGEND_PAD * 2),
     }));
 
-  const innerW = width * cellSize - cellSize * 2; // margin = cellSize on each side
+  // `width` is the grid's column count. Export canvases reserve axis margins
+  // outside this area, so the legend's drawable width is the full grid width.
+  const innerW = width * cellSize;
   const sections: LegendSectionLayout[] = [];
   if (includeByCount) {
     const items = layoutItems(byCount);

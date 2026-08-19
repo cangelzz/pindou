@@ -184,7 +184,7 @@ let _harnessPath: string | null = null;
 
 /** Boot the webview harness and wait for the React app to mount. */
 export async function setupPage(page: Page): Promise<void> {
-  if (!_harnessPath) {
+  if (!_harnessPath || !fs.existsSync(_harnessPath)) {
     const harness = path.join(DIST_DIR, "test-harness.html");
     fs.writeFileSync(harness, createTestHtml());
     _harnessPath = harness;

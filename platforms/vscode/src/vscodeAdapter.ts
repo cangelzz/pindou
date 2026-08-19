@@ -16,16 +16,11 @@ import type {
   ImportMode,
 } from "../../../src/adapters";
 import type { ProjectFile } from "../../../src/types";
-import { computeLegendLayout, drawLegend } from "../../../src/utils/blueprintLegend";
 import {
   normalizeProjectFromDisk,
   serializeProjectToV3,
 } from "../../../src/utils/projectSerialization";
-import {
-  computeHeaderHeight,
-  drawHeader,
-  drawWatermark,
-} from "../../../src/utils/blueprintDecorations";
+import { renderBlueprintBlob, renderPreviewBlob } from "../../../src/utils/canvasExport";
 import { importBlueprintTS, detectBlueprintDimsTS } from "../../../src/utils/blueprintImportTS";
 import appIconUrl from "../../../src-tauri/icons/64x64.png";
 
@@ -77,6 +72,20 @@ function sendRequest(type: string, data: Record<string, any> = {}): Promise<any>
   return new Promise((resolve, reject) => {
     pendingRequests.set(requestId, { resolve, reject });
     vscode.postMessage({ type, requestId, ...data });
+  });
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      const comma = value.indexOf(",");
+      if (comma < 0) reject(new Error("Failed to encode export Blob"));
+      else resolve(value.slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read export Blob"));
+    reader.readAsDataURL(blob);
   });
 }
 
@@ -271,7 +280,13 @@ export class VScodeAdapter implements PlatformAdapter {
     return result.data;
   }
 
-  async saveSnapshot(project: ProjectFile, label: string): Promise<void> {
+  async clearAutosave(): Promise<void> {
+    const dir = await this.getAutosaveDir();
+    await sendRequest("deleteSnapshot", { path: `${dir}/autosave.pindou` });
+  }
+
+  async saveSnapshot(project: ProjectFile, label: string, sourceProjectId?: string): Promise<void> {
+    if (sourceProjectId && !project.projectId) project = { ...project, projectId: sourceProjectId };
     const dir = await this.getAutosaveDir();
     const filename = `snapshot_${Date.now()}_${label.replace(/[^a-zA-Z0-9]/g, "_")}.pindou`;
     const path = `${dir}/${filename}`;
@@ -337,236 +352,17 @@ export class VScodeAdapter implements PlatformAdapter {
   }
 
   async exportImage(request: ExportImageRequest): Promise<void> {
-    const { width, height, cell_size, cells, output_path, format, start_x, start_y, edge_padding, watermark, legend_options } = request;
-
-    // Reserve a single-cell margin on ALL four sides for axis labels.
-    // Top + bottom carry column numbers; left + right carry row numbers.
-    // Without these strips, labels land at negative y/x and get clipped.
-    const margin = cell_size;
-    const imgW = width * cell_size + margin * 2;
-    const gridAreaH = height * cell_size + margin * 2;
-    const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
-    const legend = computeLegendLayout(cells as any, width, cell_size, {
-      includeByCount: legend_options?.include_by_count !== false,
-      includeByName: legend_options?.include_by_name === true,
-    });
-    const imgH = headerH + gridAreaH + legend.totalHeight;
-    const canvas = document.createElement("canvas");
-    canvas.width = imgW;
-    canvas.height = imgH;
-    const ctx = canvas.getContext("2d")!;
-
-    // Fill background white (covers header + grid + legend)
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, imgW, imgH);
-
-    // Optional header band
-    if (headerH > 0 && watermark) {
-      const icon = await loadAppIcon();
-      drawHeader(ctx, {
-        cellSize: cell_size,
-        width: imgW,
-        headerHeight: headerH,
-        iconImage: icon,
-        description: watermark.app_description,
-      });
-    }
-
-    // Grid origin (top-left of cell [0,0]) in image-absolute coordinates.
-    const gridX = margin;
-    const gridY = headerH + margin;
-
-    // Axis labels — drawn in the four margin strips, NOT in translated space.
-    // Top + bottom = column numbers; left + right = row numbers.
-    const axisFontPx = Math.max(8, cell_size * 0.45);
-    ctx.font = `${axisFontPx}px "Segoe UI", Arial, sans-serif`;
-    ctx.fillStyle = "rgb(80,80,80)";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    const rightLabelX = gridX + width * cell_size + cell_size / 8;
-    const bottomLabelY = gridY + height * cell_size + cell_size / 4;
-    for (let col = edge_padding; col < width - edge_padding; col++) {
-      const label = String(col - edge_padding + start_x);
-      const labelX = gridX + col * cell_size + cell_size / 6;
-      ctx.fillText(label, labelX, headerH + cell_size / 4);   // top
-      ctx.fillText(label, labelX, bottomLabelY);              // bottom
-    }
-    for (let row = edge_padding; row < height - edge_padding; row++) {
-      const label = String(row - edge_padding + start_y);
-      const labelY = gridY + row * cell_size + cell_size / 4;
-      ctx.fillText(label, cell_size / 8, labelY);             // left
-      ctx.fillText(label, rightLabelX, labelY);               // right
-    }
-
-    // Translate into grid-local coordinates for cells + grid lines.
-    ctx.save();
-    ctx.translate(gridX, gridY);
-
-    // Draw cells (filled rect only; the universal thin grid below provides
-    // borders for empty cells too — earlier version drew strokeRect only for
-    // non-empty cells, leaving empty regions with no visible grid).
-    for (let row = 0; row < height; row++) {
-      for (let col = 0; col < width; col++) {
-        const cell = cells[row]?.[col];
-        if (!cell) continue;
-        const x = col * cell_size;
-        const y = row * cell_size;
-        ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
-        ctx.fillRect(x, y, cell_size, cell_size);
-
-        if (cell_size >= 16) {
-          const fontSize = Math.max(7, Math.min(cell_size * 0.4, 14));
-          ctx.font = `${fontSize}px "Segoe UI", Arial, sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          const lum = 0.299 * cell.r + 0.587 * cell.g + 0.114 * cell.b;
-          ctx.fillStyle = lum > 140 ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.95)";
-          ctx.fillText(cell.color_code, x + cell_size / 2, y + cell_size / 2, cell_size - 2);
-        }
-      }
-    }
-
-    // Three-layer grid (matches Rust thin/mid/thick passes). Draw order matters:
-    // mid overwrites thin, thick overwrites mid, so a position that's both a
-    // 5-step and a 10-step line ends up thick.
-    const gridW = width * cell_size;
-    const gridH = height * cell_size;
-
-    // Thin per-cell grid covers the FULL grid area, including empty cells.
-    ctx.strokeStyle = "rgb(180,180,180)";
-    ctx.lineWidth = 1;
-    for (let col = 0; col <= width; col++) {
-      const x = col * cell_size + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, gridH);
-      ctx.stroke();
-    }
-    for (let row = 0; row <= height; row++) {
-      const y = row * cell_size + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(gridW, y);
-      ctx.stroke();
-    }
-
-    // Mid 5-cell grid
-    ctx.strokeStyle = "rgb(80,80,80)";
-    ctx.lineWidth = 2;
-    for (let col = edge_padding; col <= width - edge_padding; col += 5) {
-      const x = col * cell_size;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, gridH);
-      ctx.stroke();
-    }
-    for (let row = edge_padding; row <= height - edge_padding; row += 5) {
-      const y = row * cell_size;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(gridW, y);
-      ctx.stroke();
-    }
-
-    // Thick 10-cell grid
-    ctx.strokeStyle = "rgb(0,0,0)";
-    ctx.lineWidth = 3;
-    for (let col = edge_padding; col <= width - edge_padding; col += 10) {
-      const x = col * cell_size;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, gridH);
-      ctx.stroke();
-    }
-    for (let row = edge_padding; row <= height - edge_padding; row += 10) {
-      const y = row * cell_size;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(gridW, y);
-      ctx.stroke();
-    }
-
-    // Outer thick border around the grid
-    ctx.strokeStyle = "rgb(0,0,0)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(0, 0, gridW, gridH);
-
-    ctx.restore();
-
-    // Watermark over the grid area (absolute coords)
-    if (watermark && watermark.watermark_lines.length > 0) {
-      drawWatermark(ctx, {
-        cellSize: cell_size,
-        gridX,
-        gridY,
-        gridW,
-        gridH,
-        lines: watermark.watermark_lines,
-      });
-    }
-
-    // Bead-count legend below grid. drawLegend's `margin` param drives both
-    // left padding and innerW = canvas.width - margin*2; passing cell_size
-    // keeps it consistent with the grid's left margin.
-    drawLegend(ctx, legend, margin, headerH + gridAreaH);
-
-    // Export to blob and save via extension host
-    const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
-    const dataUrl = canvas.toDataURL(mimeType, 0.95);
-    const base64 = dataUrl.split(",")[1];
-    await sendRequest("writeFile", { path: output_path, data: base64 });
+    const { output_path, ...renderRequest } = request;
+    const icon = await loadAppIcon();
+    const blob = await renderBlueprintBlob(renderRequest, { appIcon: icon });
+    await sendRequest("writeFile", { path: output_path, data: await blobToBase64(blob) });
   }
 
   async exportPreview(request: ExportPreviewRequest): Promise<void> {
-    const { width, height, pixel_size, cells, output_path, watermark } = request;
-    const cw = width * pixel_size;
-    const gridAreaH = height * pixel_size;
-    const headerH = computeHeaderHeight(pixel_size, !!watermark?.show_header);
-    const ch = headerH + gridAreaH;
-    const canvas = document.createElement("canvas");
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = canvas.getContext("2d")!;
-
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, cw, ch);
-
-    // Optional header band
-    if (headerH > 0 && watermark) {
-      const icon = await loadAppIcon();
-      drawHeader(ctx, {
-        cellSize: pixel_size,
-        width: cw,
-        headerHeight: headerH,
-        iconImage: icon,
-        description: watermark.app_description,
-      });
-    }
-
-    for (let row = 0; row < height; row++) {
-      for (let col = 0; col < width; col++) {
-        const cell = cells[row]?.[col];
-        if (!cell) continue;
-        ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
-        ctx.fillRect(col * pixel_size, headerH + row * pixel_size, pixel_size, pixel_size);
-      }
-    }
-
-    // Watermark over the color block area
-    if (watermark && watermark.watermark_lines.length > 0) {
-      drawWatermark(ctx, {
-        cellSize: pixel_size,
-        gridX: 0,
-        gridY: headerH,
-        gridW: cw,
-        gridH: gridAreaH,
-        lines: watermark.watermark_lines,
-      });
-    }
-
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    const base64 = dataUrl.split(",")[1];
-    await sendRequest("writeFile", { path: output_path, data: base64 });
+    const { output_path, ...renderRequest } = request;
+    const icon = await loadAppIcon();
+    const blob = await renderPreviewBlob(renderRequest, { appIcon: icon });
+    await sendRequest("writeFile", { path: output_path, data: await blobToBase64(blob) });
   }
 
   async importBlueprint(

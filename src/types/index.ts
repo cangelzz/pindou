@@ -104,6 +104,8 @@ export interface ProjectInfo {
 
 export interface ProjectFile {
   version: number;
+  /** Stable logical project identity. Optional for legacy v1-v3 files. */
+  projectId?: string;
   canvasSize: CanvasSize;
   /** Flattened bottom-to-top composite of all visible layers. Always present for
    * back-compat with v1 loaders that don't know about `layers`. */

@@ -19,11 +19,20 @@ import {
 } from "../../utils/colorCalibration";
 import { applyAdjustmentsToPixels, IDENTITY_ADJUSTMENTS, isIdentity, type ColorAdjustments } from "../../utils/colorAdjust";
 import { ColorAdjustPanel } from "../ColorAdjust/ColorAdjustPanel";
+import type { ImageImportAsset } from "../../platform/imageImportService";
+import { getPlatformServices } from "../../platform/serviceRegistry";
+import { loadLocallySelectedImage } from "./loadLocallySelectedImage";
+import { createInitialAssetRelease } from "./initialAssetRelease";
 
 // Discrete zoom levels for the import preview canvas (crop mode only)
 const ZOOM_LEVELS = [1, 2, 3, 4, 6];
+type PlatformAdapterWithImageFile = ReturnType<typeof getAdapter> & { setImageImportFile(file: File): void };
 
-export function ImageImportDialog({ onClose }: { onClose: () => void }) {
+export function ImageImportDialog({ onClose, initialAsset, onInitialAssetReleased }: {
+  onClose: () => void;
+  initialAsset?: ImageImportAsset;
+  onInitialAssetReleased?: (id: string) => void;
+}) {
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
   const placeImageOnCanvas = useEditorStore((s) => s.placeImageOnCanvas);
   const setRefImage = useEditorStore((s) => s.setRefImage);
@@ -31,7 +40,15 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
   const currentCanvasSize = useEditorStore((s) => s.canvasSize);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
 
-  const [filePath, setFilePath] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(initialAsset?.displayName ?? null);
+  const releaseInitialAssetRef = useRef<(() => void) | null>(null);
+  if (initialAsset && !releaseInitialAssetRef.current) {
+    releaseInitialAssetRef.current = createInitialAssetRelease(initialAsset.id, onInitialAssetReleased ?? (() => {}));
+  }
+  const closeAndRelease = useCallback(() => {
+    releaseInitialAssetRef.current?.();
+    onClose();
+  }, [onClose]);
   const [maxDimension, setMaxDimension] = useState(52);
   const [algorithm, setAlgorithm] = useState<ColorMatchAlgorithm>("euclidean");
   const [colorGroupId, setColorGroupId] = useState("mard221");
@@ -53,6 +70,13 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   // Image preview for crop selection
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
+  useEffect(() => {
+    if (!initialAsset) return;
+    const adapter = getAdapter();
+    if (!("setImageImportFile" in adapter)) return;
+    (adapter as PlatformAdapterWithImageFile).setImageImportFile(initialAsset.file);
+    void adapter.previewImage(initialAsset.displayName).then(setImagePreview).catch(async (e) => appAlert(`加载预览失败: ${e}`));
+  }, [initialAsset]);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
 
   // Color-matched result
@@ -226,14 +250,29 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
 
   const handleSelectFile = async () => {
     const adapter = getAdapter();
-    const selected = await adapter.showOpenDialog([
-      {
-        name: "Image",
-        extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"],
-      },
-    ]);
+    const images = getPlatformServices().images;
+    let selected: string | null;
+    let selectedPreview: ImagePreview | undefined;
+    if (images.availability === "available") {
+      if (!("setImageImportFile" in adapter)) return;
+      try {
+        const loaded = await loadLocallySelectedImage(
+          images,
+          getPlatformServices().imageImports,
+          adapter as PlatformAdapterWithImageFile,
+        );
+        if (!loaded) return;
+        selected = loaded.displayName;
+        selectedPreview = loaded.preview;
+      } catch (e) {
+        await appAlert(`加载预览失败: ${e}`);
+        return;
+      }
+    } else {
+      selected = await images.showOpenDialog([{ name: "Image", extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"] }]);
+    }
     if (selected) {
-      setFilePath(selected as string);
+      setFilePath(selected);
       setImagePreview(null);
       setCropRect(null);
       setMatchedPreview(null);
@@ -245,7 +284,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setPreviewZoom(1);
 
       try {
-        const preview = await adapter.previewImage(selected as string);
+        const preview = selectedPreview ?? await adapter.previewImage(selected);
         setImagePreview(preview);
       } catch (e) {
         await appAlert(`加载预览失败: ${e}`);
@@ -936,7 +975,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
       setImportedFileName(name);
     }
 
-    onClose();
+    closeAndRelease();
   };
 
   const gridCellSize = getGridCellSize();
@@ -964,7 +1003,7 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
         <div className="px-4 py-3 border-b flex justify-between items-center">
           <h2 className="font-semibold text-sm">导入图片</h2>
           <button
-            onClick={onClose}
+            onClick={closeAndRelease}
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
           >
             ×
@@ -978,12 +1017,12 @@ export function ImageImportDialog({ onClose }: { onClose: () => void }) {
               图片文件
             </label>
             <div className="flex gap-2">
-              <button
+              {!initialAsset && <button
                 onClick={handleSelectFile}
                 className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
               >
                 选择文件
-              </button>
+              </button>}
               <span className="text-xs text-gray-500 self-center truncate flex-1">
                 {filePath || "未选择"}
               </span>

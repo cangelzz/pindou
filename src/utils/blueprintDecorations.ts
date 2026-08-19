@@ -2,7 +2,7 @@
  * Header band + diagonal watermark for blueprint and preview exports.
  *
  * Pure layout + persistence functions live here; Canvas drawing helpers are
- * exported separately and called by src/adapters/browser.ts. A Rust mirror
+ * exported separately and called by src/utils/canvasExport.ts. A Rust mirror
  * lives at src-tauri/src/commands/image_decorations.rs.
  */
 

@@ -12,14 +12,7 @@ import type {
   ImportMode,
 } from "./index";
 import type { ProjectFile } from "../types";
-import { computeLegendLayout, drawLegend } from "../utils/blueprintLegend";
-import {
-  computeHeaderHeight,
-  drawHeader,
-  drawWatermark,
-} from "../utils/blueprintDecorations";
-import { drawTransparentBeadMarker } from "../utils/canvasRenderer";
-import { TRANSPARENT_BEAD_CODE } from "../data/mard221";
+import { renderBlueprintBlob, renderPreviewBlob } from "../utils/canvasExport";
 import { importBlueprintTS, detectBlueprintDimsTS } from "../utils/blueprintImportTS";
 import appIconUrl from "../../src-tauri/icons/64x64.png";
 
@@ -42,8 +35,9 @@ function loadAppIcon(): Promise<HTMLImageElement | null> {
 }
 
 const DB_NAME = "pindouverse";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_PROJECTS = "projects";
+const STORE_AUTOSAVE = "autosave";
 const STORE_SNAPSHOTS = "snapshots";
 
 function openDB(): Promise<IDBDatabase> {
@@ -53,6 +47,9 @@ function openDB(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_PROJECTS)) {
         db.createObjectStore(STORE_PROJECTS);
+      }
+      if (!db.objectStoreNames.contains(STORE_AUTOSAVE)) {
+        db.createObjectStore(STORE_AUTOSAVE);
       }
       if (!db.objectStoreNames.contains(STORE_SNAPSHOTS)) {
         db.createObjectStore(STORE_SNAPSHOTS);
@@ -191,10 +188,19 @@ function filtersToAccept(filters: FileFilter[]): string {
 
 // ─── Browser / Extension adapter ─────────────────────────────────
 
+export type BrowserDownloadSink = (blob: Blob, filename: string) => void | Promise<void>;
+
 export class BrowserAdapter implements PlatformAdapter {
+  constructor(private readonly saveBlob: BrowserDownloadSink = downloadBlob) {}
+
   /** File picked by open dialog, stored for later use by previewImage/importImage */
   private _pendingFile: File | null = null;
   private _pendingImageEl: HTMLImageElement | null = null;
+
+  setImageImportFile(file: File): void {
+    this._pendingFile = file;
+    this._pendingImageEl = null;
+  }
 
   async showSaveDialog(_filters: FileFilter[], defaultPath?: string): Promise<string | null> {
     // In browser we don't pick a path; return the suggested filename
@@ -211,19 +217,23 @@ export class BrowserAdapter implements PlatformAdapter {
     return file.name;
   }
 
-  // ─── Project I/O (IndexedDB) ───
+  // ─── Legacy project migration / autosave ───
 
   async saveProject(path: string, project: ProjectFile): Promise<void> {
+    // Formal browser saves are handled by BrowserProjectFileService. Keep the
+    // pre-existing IndexedDB path only for the current autosave implementation.
+    if (!path.includes("__autosave__")) {
+      throw new Error("Browser projects must be saved through ProjectFileService");
+    }
     await idbPut(STORE_PROJECTS, path, project);
   }
 
-  async writeProjectFile(path: string, project: ProjectFile): Promise<void> {
-    // Browser has no editor concept — store the file under the chosen
-    // IndexedDB key, same as saveProject.
-    await idbPut(STORE_PROJECTS, path, project);
+  async writeProjectFile(_path: string, _project: ProjectFile): Promise<void> {
+    throw new Error("Browser projects must be saved through ProjectFileService");
   }
 
   async loadProject(path: string): Promise<ProjectFile> {
+    // Read-only compatibility entry for projects created by older releases.
     const project = await idbGet<ProjectFile>(STORE_PROJECTS, path);
     if (!project) throw new Error(`Project not found: ${path}`);
     return project;
@@ -235,7 +245,8 @@ export class BrowserAdapter implements PlatformAdapter {
 
   // ─── Snapshots (IndexedDB) ───
 
-  async saveSnapshot(project: ProjectFile, label: string): Promise<void> {
+  async saveSnapshot(project: ProjectFile, label: string, sourceProjectId?: string): Promise<void> {
+    if (sourceProjectId && !project.projectId) project = { ...project, projectId: sourceProjectId };
     const key = `snapshot_${Date.now()}_${label}`;
     await idbPut(STORE_SNAPSHOTS, key, { project, label, timestamp: new Date().toISOString() });
   }
@@ -311,202 +322,20 @@ export class BrowserAdapter implements PlatformAdapter {
   // ─── Image export (Canvas API + download) ───
 
   async exportImage(request: ExportImageRequest): Promise<void> {
-    const {
-      width, height, cell_size, cells, output_path, format,
-      start_x, start_y, edge_padding, watermark, legend_options,
-    } = request;
-    const cw = width * cell_size;
-    const gridAreaH = height * cell_size;
-    const headerH = computeHeaderHeight(cell_size, !!watermark?.show_header);
-    const legend = computeLegendLayout(cells as any, width, cell_size, {
-      includeByCount: legend_options?.include_by_count !== false,
-      includeByName: legend_options?.include_by_name === true,
-    });
-    const ch = headerH + gridAreaH + legend.totalHeight;
-    const canvas = document.createElement("canvas");
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = canvas.getContext("2d")!;
-
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, cw, ch);
-
-    // Optional header
-    if (headerH > 0 && watermark) {
-      const icon = await loadAppIcon();
-      drawHeader(ctx, {
-        cellSize: cell_size,
-        width: cw,
-        headerHeight: headerH,
-        iconImage: icon,
-        description: watermark.app_description,
-      });
-    }
-
-    // Translate the existing grid/axis/legend drawing into the post-header band
-    const useTranslate = headerH > 0;
-    if (useTranslate) {
-      ctx.save();
-      ctx.translate(0, headerH);
-    }
-
-    // Draw cells
-    for (let row = 0; row < height; row++) {
-      for (let col = 0; col < width; col++) {
-        const cell = cells[row]?.[col];
-        if (cell) {
-          if (cell.color_code === TRANSPARENT_BEAD_CODE) {
-            drawTransparentBeadMarker(ctx, col * cell_size, row * cell_size, cell_size);
-          } else {
-            ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
-            ctx.fillRect(col * cell_size, row * cell_size, cell_size, cell_size);
-          }
-        }
-      }
-    }
-
-    // Grid lines
-    ctx.strokeStyle = "rgba(0,0,0,0.3)";
-    ctx.lineWidth = 1;
-    for (let col = 0; col <= width; col++) {
-      ctx.beginPath();
-      ctx.moveTo(col * cell_size, 0);
-      ctx.lineTo(col * cell_size, gridAreaH);
-      ctx.stroke();
-    }
-    for (let row = 0; row <= height; row++) {
-      ctx.beginPath();
-      ctx.moveTo(0, row * cell_size);
-      ctx.lineTo(cw, row * cell_size);
-      ctx.stroke();
-    }
-
-    // Thick group lines (5×5)
-    ctx.strokeStyle = "rgba(0,0,0,0.6)";
-    ctx.lineWidth = 2;
-    for (let col = edge_padding; col <= width - edge_padding; col += 5) {
-      ctx.beginPath();
-      ctx.moveTo(col * cell_size, edge_padding * cell_size);
-      ctx.lineTo(col * cell_size, (height - edge_padding) * cell_size);
-      ctx.stroke();
-    }
-    for (let row = edge_padding; row <= height - edge_padding; row += 5) {
-      ctx.beginPath();
-      ctx.moveTo(edge_padding * cell_size, row * cell_size);
-      ctx.lineTo((width - edge_padding) * cell_size, row * cell_size);
-      ctx.stroke();
-    }
-
-    // Color codes
-    if (cell_size >= 20) {
-      const fontSize = Math.max(8, cell_size * 0.28);
-      ctx.font = `${fontSize}px monospace`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      for (let row = 0; row < height; row++) {
-        for (let col = 0; col < width; col++) {
-          const cell = cells[row]?.[col];
-          if (cell) {
-            const lum = 0.299 * cell.r + 0.587 * cell.g + 0.114 * cell.b;
-            ctx.fillStyle = lum > 140 ? "rgba(0,0,0,0.8)" : "rgba(255,255,255,0.9)";
-            ctx.fillText(cell.color_code, col * cell_size + cell_size / 2, row * cell_size + cell_size / 2, cell_size - 2);
-          }
-        }
-      }
-    }
-
-    // Axis numbers
-    const axisFont = Math.max(8, cell_size * 0.3);
-    ctx.font = `bold ${axisFont}px "Segoe UI", Arial, sans-serif`;
-    ctx.fillStyle = "rgba(60,60,60,0.9)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    for (let col = edge_padding; col < width - edge_padding; col++) {
-      ctx.fillText(`${col - edge_padding + start_x}`, col * cell_size + cell_size / 2, edge_padding * cell_size / 2 || axisFont);
-    }
-    for (let row = edge_padding; row < height - edge_padding; row++) {
-      ctx.fillText(`${row - edge_padding + start_y}`, edge_padding * cell_size / 2 || axisFont, row * cell_size + cell_size / 2);
-    }
-
-    // Bead-count legend below grid (matches Tauri output)
-    drawLegend(ctx, legend, cell_size, gridAreaH);
-
-    if (useTranslate) {
-      ctx.restore();
-    }
-
-    // Watermark (in absolute coords — inside the grid area only, after the header offset)
-    if (watermark && watermark.watermark_lines.length > 0) {
-      drawWatermark(ctx, {
-        cellSize: cell_size,
-        gridX: 0,
-        gridY: headerH,
-        gridW: cw,
-        gridH: gridAreaH,
-        lines: watermark.watermark_lines,
-      });
-    }
-
-    const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
-    const ext = format === "jpeg" ? "jpg" : "png";
-    const blob = await new Promise<Blob>((resolve) =>
-      canvas.toBlob((b) => resolve(b!), mimeType, 0.92)
-    );
-    const filename = output_path.split(/[/\\]/).pop() ?? `export.${ext}`;
-    downloadBlob(blob, filename);
+    const { output_path, ...renderRequest } = request;
+    const icon = await loadAppIcon();
+    const blob = await renderBlueprintBlob(renderRequest, { appIcon: icon });
+    const ext = request.format === "jpeg" ? "jpg" : "png";
+    const filename = output_path.split(/[/\\]/).pop() || `export.${ext}`;
+    await this.saveBlob(blob, filename);
   }
 
   async exportPreview(request: ExportPreviewRequest): Promise<void> {
-    const { width, height, pixel_size, cells, output_path, watermark } = request;
-    const cw = width * pixel_size;
-    const gridAreaH = height * pixel_size;
-    const headerH = computeHeaderHeight(pixel_size, !!watermark?.show_header);
-    const ch = headerH + gridAreaH;
-    const canvas = document.createElement("canvas");
-    canvas.width = cw;
-    canvas.height = ch;
-    const ctx = canvas.getContext("2d")!;
-
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, cw, ch);
-
-    if (headerH > 0 && watermark) {
-      const icon = await loadAppIcon();
-      drawHeader(ctx, {
-        cellSize: pixel_size,
-        width: cw,
-        headerHeight: headerH,
-        iconImage: icon,
-        description: watermark.app_description,
-      });
-    }
-
-    for (let row = 0; row < height; row++) {
-      for (let col = 0; col < width; col++) {
-        const cell = cells[row]?.[col];
-        if (cell) {
-          ctx.fillStyle = `rgb(${cell.r},${cell.g},${cell.b})`;
-          ctx.fillRect(col * pixel_size, headerH + row * pixel_size, pixel_size, pixel_size);
-        }
-      }
-    }
-
-    if (watermark && watermark.watermark_lines.length > 0) {
-      drawWatermark(ctx, {
-        cellSize: pixel_size,
-        gridX: 0,
-        gridY: headerH,
-        gridW: cw,
-        gridH: gridAreaH,
-        lines: watermark.watermark_lines,
-      });
-    }
-
-    const blob = await new Promise<Blob>((resolve) =>
-      canvas.toBlob((b) => resolve(b!), "image/jpeg", 0.92)
-    );
-    const filename = output_path.split(/[/\\]/).pop() ?? "preview.jpg";
-    downloadBlob(blob, filename);
+    const { output_path, ...renderRequest } = request;
+    const icon = await loadAppIcon();
+    const blob = await renderPreviewBlob(renderRequest, { appIcon: icon });
+    const filename = output_path.split(/[/\\]/).pop() || "preview.jpg";
+    await this.saveBlob(blob, filename);
   }
 
   async importBlueprint(

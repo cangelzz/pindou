@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import type { EditorTool } from "../../types";
-import { hasToken } from "../../utils/llmVoice";
+import { getPlatformServices } from "../../platform/serviceRegistry";
 
 const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
   { id: "select", label: "选区", icon: "⬚", shortcut: "S" },
@@ -79,8 +79,10 @@ export function CanvasToolbar() {
   const setGridFocusMode = useEditorStore((s) => s.setGridFocusMode);
   const voiceControlEnabled = useEditorStore((s) => s.voiceControlEnabled);
   const setVoiceControlEnabled = useEditorStore((s) => s.setVoiceControlEnabled);
-  const aiVoiceEnabled = useEditorStore((s) => s.aiVoiceEnabled);
-  const betaAiVoice = useEditorStore((s) => s.betaFeatures.aiVoice);
+  const voiceEnhancementEnabled = useEditorStore((s) => s.voiceEnhancementEnabled);
+  const betaVoiceEnhancement = useEditorStore((s) => s.betaFeatures.voiceEnhancement);
+  const voiceEnhancement = getPlatformServices().capabilities.ai ? getPlatformServices().voiceEnhancement : undefined;
+  const aiAvailable = !!voiceEnhancement;
 
   return (
     <div className="flex flex-col gap-1 p-2 bg-gray-50 border-r w-12 items-center select-none">
@@ -281,7 +283,7 @@ export function CanvasToolbar() {
       )}
 
       {/* Voice control toggle (only in blueprint + grid focus mode) */}
-      {blueprintMode && gridFocusMode && (
+      {getPlatformServices().capabilities.basicVoiceControl && blueprintMode && gridFocusMode && (
         <button
           onClick={() => setVoiceControlEnabled(!voiceControlEnabled)}
           className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
@@ -293,12 +295,13 @@ export function CanvasToolbar() {
       )}
 
       {/* AI voice enhancement indicator (only when feature enabled + logged in) */}
-      {blueprintMode && gridFocusMode && aiVoiceEnabled && betaAiVoice && hasToken() && (
+      {aiAvailable && blueprintMode && gridFocusMode && voiceEnhancementEnabled && betaVoiceEnhancement && (
         <div
+          data-testid="ai-voice-status"
           className="w-9 h-7 rounded flex items-center justify-center text-[9px] bg-green-500 text-white shadow"
-          title="AI语音增强已启用"
+          title={voiceEnhancement!.labels.enabled}
         >
-          AI
+          {voiceEnhancement!.labels.status}
         </div>
       )}
 
