@@ -34,10 +34,11 @@ beforeEach(() => {
 });
 
 const cells = [[{ color_code: "A1", r: 1, g: 2, b: 3 }]];
+const browserAdapterModule = import("../../../src/adapters/browser");
 
 describe("browser export contract", () => {
   it("passes the complete blueprint request without output_path to the shared renderer and downloads its filename", async () => {
-    const { BrowserAdapter } = await import("../../../src/adapters/browser");
+    const { BrowserAdapter } = await browserAdapterModule;
     await new BrowserAdapter().exportImage({
       width: 1,
       height: 1,
@@ -67,7 +68,7 @@ describe("browser export contract", () => {
   });
 
   it("routes preview through the same renderer boundary and preserves the requested filename", async () => {
-    const { BrowserAdapter } = await import("../../../src/adapters/browser");
+    const { BrowserAdapter } = await browserAdapterModule;
     await new BrowserAdapter().exportPreview({
       width: 1,
       height: 1,
