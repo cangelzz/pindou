@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface Props {
   /** Top edge of the selection in viewport coordinates (px). */
   selectionTop: number;
@@ -27,6 +29,7 @@ export function SelectionActionsChip({
   onClick,
   warnOtherLayer,
 }: Props) {
+  const { t } = useTranslation();
   // Anchor: chip's right edge aligned with selection's right edge; chip sits
   // GAP_ABOVE_SELECTION above the selection's top. Clamp top so the chip
   // never floats above the container (i.e., out of the canvas area).
@@ -54,7 +57,7 @@ export function SelectionActionsChip({
         }}
       >
         <span aria-hidden="true" className="text-gray-400">⋮</span>
-        <span>右键查看操作</span>
+        <span>{t("selection.chip")}</span>
       </button>
       {warnOtherLayer && (
         <div
@@ -64,7 +67,7 @@ export function SelectionActionsChip({
             right: typeof window !== "undefined" ? Math.max(2, window.innerWidth - selectionRight) : 0,
           }}
         >
-          ⚠ 选区内容在其他图层（当前图层为空）
+          ⚠ {t("selection.otherLayerWarning")}
         </div>
       )}
     </>

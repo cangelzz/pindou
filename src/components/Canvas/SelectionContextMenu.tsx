@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { BeadLayer } from "../../types";
+import { getLayerDisplayName } from "../../store/defaultLayerNames";
 
 interface Props {
   x: number;
@@ -82,6 +84,7 @@ export function SelectionContextMenu({
   onClose,
   onCommitFloating,
 }: Props) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [openSubmenu, setOpenSubmenu] = useState<"mirror" | "moveToLayer" | null>(null);
 
@@ -126,15 +129,15 @@ export function SelectionContextMenu({
         onMouseEnter={() => setOpenSubmenu("mirror")}
         onMouseLeave={() => setOpenSubmenu(null)}
       >
-        <Item label="镜像" hasSubmenu onCloseMenu={onClose} />
+        <Item label={t("selection.menu.mirror")} hasSubmenu onCloseMenu={onClose} />
         {openSubmenu === "mirror" && (
           <div
             role="menu"
             className="absolute bg-white border border-gray-300 rounded shadow-lg py-1"
             style={submenuOpensLeft ? { right: MENU_WIDTH - 4, left: undefined, top: 0, width: SUBMENU_WIDTH } : { left: MENU_WIDTH - 4, top: 0, width: SUBMENU_WIDTH }}
           >
-            <Item label="水平翻转" onClick={() => onMirror("horizontal")} onCloseMenu={onClose} />
-            <Item label="垂直翻转" onClick={() => onMirror("vertical")} onCloseMenu={onClose} />
+            <Item label={t("selection.menu.horizontal")} onClick={() => onMirror("horizontal")} onCloseMenu={onClose} />
+            <Item label={t("selection.menu.vertical")} onClick={() => onMirror("vertical")} onCloseMenu={onClose} />
           </div>
         )}
       </div>
@@ -143,19 +146,19 @@ export function SelectionContextMenu({
 
       {mode === "floating" && (
         <>
-          <Item label="提交到图层" onClick={onCommitFloating} onCloseMenu={onClose} />
+          <Item label={t("selection.menu.commit")} onClick={onCommitFloating} onCloseMenu={onClose} />
           <Divider />
         </>
       )}
 
-      <Item label="移到新图层" onClick={onMoveToNewLayer} onCloseMenu={onClose} />
+      <Item label={t("selection.menu.moveNew")} onClick={onMoveToNewLayer} onCloseMenu={onClose} />
 
       <div
         className="relative"
         onMouseEnter={() => setOpenSubmenu("moveToLayer")}
         onMouseLeave={() => setOpenSubmenu(null)}
       >
-        <Item label="移到图层" hasSubmenu disabled={otherLayers.length === 0} onCloseMenu={onClose} />
+        <Item label={t("selection.menu.moveLayer")} hasSubmenu disabled={otherLayers.length === 0} onCloseMenu={onClose} />
         {openSubmenu === "moveToLayer" && otherLayers.length > 0 && (
           <div
             role="menu"
@@ -163,7 +166,7 @@ export function SelectionContextMenu({
             style={submenuOpensLeft ? { right: MENU_WIDTH - 4, left: undefined, top: 0, width: SUBMENU_WIDTH } : { left: MENU_WIDTH - 4, top: 0, width: SUBMENU_WIDTH }}
           >
             {otherLayers.map((l) => (
-              <Item key={l.id} label={l.name} onClick={() => onMoveToLayer(l.id)} onCloseMenu={onClose} />
+              <Item key={l.id} label={getLayerDisplayName(l)} onClick={() => onMoveToLayer(l.id)} onCloseMenu={onClose} />
             ))}
           </div>
         )}
@@ -171,18 +174,18 @@ export function SelectionContextMenu({
 
       <Divider />
 
-      <Item label="复制" onClick={onCopy} onCloseMenu={onClose} />
-      <Item label="复制（所有可见图层）" onClick={onCopyAllVisible} onCloseMenu={onClose} />
-      <Item label="原地复制并拖动" onClick={onDuplicateDraggable} onCloseMenu={onClose} />
+      <Item label={t("selection.menu.copy")} onClick={onCopy} onCloseMenu={onClose} />
+      <Item label={t("selection.menu.copyVisible")} onClick={onCopyAllVisible} onCloseMenu={onClose} />
+      <Item label={t("selection.menu.duplicate")} onClick={onDuplicateDraggable} onCloseMenu={onClose} />
 
       <Divider />
 
-      <Item label="替换颜色..." onClick={onReplaceColor} onCloseMenu={onClose} />
-      <Item label="颜色调整..." onClick={onColorAdjust} onCloseMenu={onClose} />
+      <Item label={t("selection.menu.replace")} onClick={onReplaceColor} onCloseMenu={onClose} />
+      <Item label={t("selection.menu.adjust")} onClick={onColorAdjust} onCloseMenu={onClose} />
 
       <Divider />
 
-      <Item label={mode === "floating" ? "取消（丢弃浮动）" : "取消选区"} onClick={onDeselect} onCloseMenu={onClose} />
+      <Item label={t(mode === "floating" ? "selection.menu.discard" : "selection.menu.deselect")} onClick={onDeselect} onCloseMenu={onClose} />
     </div>
   );
 }

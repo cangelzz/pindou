@@ -71,6 +71,17 @@ describe("BrowserGitHubService", () => {
     expect(sleeps).toEqual([1000, 6000, 11000]);
   });
 
+  it("reports structured pending and slow-down statuses", async () => {
+    const { service, fetch } = setup();
+    fetch
+      .mockResolvedValueOnce(response({ error: "authorization_pending" }))
+      .mockResolvedValueOnce(response({ error: "slow_down" }))
+      .mockResolvedValueOnce(response({ access_token: "token", token_type: "bearer", scope: "gist" }));
+    const statuses = vi.fn();
+    await service.pollDeviceFlow(info, statuses, new AbortController().signal);
+    expect(statuses.mock.calls.flat()).toEqual(["authorization-pending", "slow-down"]);
+  });
+
   it.each([
     [{ error: "access_denied", error_description: "The user denied access" }, "authentication", "denied"],
     [{ error: "expired_token" }, "authentication", "expired"],

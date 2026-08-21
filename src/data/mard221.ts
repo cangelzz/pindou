@@ -337,18 +337,17 @@ export const MARD_COLORS: MardColor[] = [
 /** Color group definitions */
 export interface ColorGroup {
   id: string;
-  name: string;
   /** Series prefixes included in this group */
   series: string[];
 }
 
 export const COLOR_GROUPS: ColorGroup[] = [
-  { id: "mard221", name: "MARD 221 (基础)", series: ["A", "B", "C", "D", "E", "F", "G", "H", "M"] },
-  { id: "all", name: "全部 295 色", series: ["A", "B", "C", "D", "E", "F", "G", "H", "M", "P", "Q", "R", "T", "Y", "ZG"] },
-  { id: "solid", name: "纯色 (A-H)", series: ["A", "B", "C", "D", "E", "F", "G", "H"] },
-  { id: "morandi", name: "莫兰迪 (M)", series: ["M"] },
-  { id: "pearl", name: "珠光 (P)", series: ["P"] },
-  { id: "special", name: "特殊效果 (Q/R/T/Y/ZG)", series: ["Q", "R", "T", "Y", "ZG"] },
+  { id: "mard221", series: ["A", "B", "C", "D", "E", "F", "G", "H", "M"] },
+  { id: "all", series: ["A", "B", "C", "D", "E", "F", "G", "H", "M", "P", "Q", "R", "T", "Y", "ZG"] },
+  { id: "solid", series: ["A", "B", "C", "D", "E", "F", "G", "H"] },
+  { id: "morandi", series: ["M"] },
+  { id: "pearl", series: ["P"] },
+  { id: "special", series: ["Q", "R", "T", "Y", "ZG"] },
 ];
 
 /** Transparent/empty color codes excluded from auto color matching */

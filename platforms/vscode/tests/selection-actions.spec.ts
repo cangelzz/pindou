@@ -536,7 +536,7 @@ test.describe("Selection actions — UI", () => {
     await page.getByRole("menuitem", { name: /^替换颜色/ }).click();
 
     // Dialog open; empty-state placeholder shown.
-    await expect(page.getByText("暂无替换规则。点下方「+ 添加替换规则」开始。")).toBeVisible();
+    await expect(page.getByText("暂无替换规则。点下方“+ 添加替换规则”开始。")).toBeVisible();
     await expect(page.getByRole("button", { name: /执行替换/ })).toBeDisabled();
 
     // Add a rule — auto-opens the from-picker.

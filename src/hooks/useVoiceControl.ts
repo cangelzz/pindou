@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { getPlatformServices } from "../platform/serviceRegistry";
 import type { VoiceEnhancementResult } from "../platform/services";
+import { i18n } from "../i18n";
 
 export type VoiceCommand =
   | "up"
@@ -41,6 +42,8 @@ const EXACT_PATTERNS: { patterns: RegExp; command: VoiceCommand }[] = [
   { patterns: /^(right|go right|move right)$/i, command: "right" },
   { patterns: /^(cancel|clear|stop)$/i, command: "cancel" },
   { patterns: /^(confirm|ok|done|yes)$/i, command: "confirm" },
+  { patterns: /^(summary|summarize|statistics|stats|report|count colors)$/i, command: "summary" },
+  { patterns: /^(still here|i am here|i'm here|continue)$/i, command: "still_here" },
 ];
 
 // Homophone / misrecognition mapping — all characters sharing the same sound
@@ -102,14 +105,40 @@ function matchBuiltinCommand(text: string): VoiceCommand {
   return "unknown";
 }
 
+export function voiceUnknownFeedback(transcript: string): string {
+  return transcript;
+}
+
 /** Try matching across all alternatives, return first match */
-function matchFromAlternatives(result: SpeechRecognitionResult): { command: VoiceCommand; raw: string; confidence: number } {
+export function parseVoiceCommand(text: string, confidence = 1): VoiceCommandResult {
+  const cleaned = text.trim();
+  const goto = cleaned.match(/^(?:go to|goto)\s+(\d+)[,\s]+(\d+)$/i)
+    ?? cleaned.match(/^column\s+(\d+)\s+row\s+(\d+)$/i)
+    ?? cleaned.match(/^(?:定位到?)?第?(\d+)列第?(\d+)行$/);
+  if (goto) return { command: "goto", raw: cleaned, confidence, gotoCol: Number(goto[1]), gotoRow: Number(goto[2]) };
+  return { command: matchBuiltinCommand(cleaned), raw: cleaned, confidence };
+}
+
+export function resolveEnhancedVoiceCommand(
+  regexResult: VoiceCommandResult,
+  enhancedResult: VoiceEnhancementResult,
+): VoiceCommandResult {
+  if (enhancedResult.command === "unknown") return regexResult;
+  return {
+    command: enhancedResult.command,
+    raw: regexResult.raw,
+    confidence: regexResult.confidence,
+    repeat: enhancedResult.repeat,
+    gotoCol: enhancedResult.gotoCol,
+    gotoRow: enhancedResult.gotoRow,
+  };
+}
+
+function matchFromAlternatives(result: SpeechRecognitionResult): VoiceCommandResult {
   for (let i = 0; i < result.length; i++) {
     const alt = result[i];
-    const cmd = matchBuiltinCommand(alt.transcript);
-    if (cmd !== "unknown") {
-      return { command: cmd, raw: alt.transcript.trim(), confidence: alt.confidence };
-    }
+    const parsed = parseVoiceCommand(alt.transcript, alt.confidence);
+    if (parsed.command !== "unknown") return parsed;
   }
   return { command: "unknown", raw: result[0].transcript.trim(), confidence: result[0].confidence };
 }
@@ -122,58 +151,73 @@ interface UseVoiceControlOptions {
   onCommand: (result: VoiceCommandResult) => void;
 }
 
-export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: UseVoiceControlOptions) {
+export function beginVoiceLifecycle(
+  mountedRef: { current: boolean },
+  stopWithoutState: () => void,
+): () => void {
+  mountedRef.current = true;
+  return () => {
+    mountedRef.current = false;
+    stopWithoutState();
+  };
+}
+
+export function useVoiceControl({ lang = i18n.language === "zh-CN" ? "zh-CN" : "en-US", useLLM = false, onCommand }: UseVoiceControlOptions) {
   const [isListening, setIsListening] = useState(false);
   const [lastResult, setLastResult] = useState<VoiceCommandResult | null>(null);
   const [isSupported] = useState(() => typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window));
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const onCommandRef = useRef(onCommand);
+  const useLLMRef = useRef(useLLM);
+  const mountedRef = useRef(true);
+  const sessionGenerationRef = useRef(0);
   onCommandRef.current = onCommand;
+  useLLMRef.current = useLLM;
 
-  // Auto-stop: 10 min idle → ask "还在吗" → 2 min no response → stop
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const IDLE_TIMEOUT = 10 * 60 * 1000;
   const PROMPT_TIMEOUT = 2 * 60 * 1000;
 
-  const stopListening = useCallback(() => {
-    if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
-    if (promptTimerRef.current) { clearTimeout(promptTimerRef.current); promptTimerRef.current = null; }
-    if (recognitionRef.current) {
-      const ref = recognitionRef.current;
-      recognitionRef.current = null;
-      ref.abort();
+  const clearTimers = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (promptTimerRef.current) clearTimeout(promptTimerRef.current);
+    idleTimerRef.current = null;
+    promptTimerRef.current = null;
+  }, []);
+
+  const stopInternal = useCallback((updateState: boolean) => {
+    sessionGenerationRef.current += 1;
+    clearTimers();
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    recognition?.abort();
+    if (updateState && mountedRef.current) {
       setIsListening(false);
       setLastResult(null);
     }
-  }, []);
+  }, [clearTimers]);
 
   const resetIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    if (promptTimerRef.current) { clearTimeout(promptTimerRef.current); promptTimerRef.current = null; }
+    clearTimers();
     idleTimerRef.current = setTimeout(() => {
-      // Ask user if still there
+      if (!mountedRef.current || !recognitionRef.current) return;
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance("还在吗");
-        u.lang = "zh-CN";
-        u.rate = 1.2;
-        u.volume = 0.9;
-        window.speechSynthesis.speak(u);
+        const utterance = new SpeechSynthesisUtterance(i18n.t("voice.stillThere"));
+        utterance.lang = i18n.language === "zh-CN" ? "zh-CN" : "en-US";
+        utterance.rate = 1.2;
+        utterance.volume = 0.9;
+        window.speechSynthesis.speak(utterance);
       }
-      // Wait 2 more minutes for response
-      promptTimerRef.current = setTimeout(() => {
-        stopListening();
-      }, PROMPT_TIMEOUT);
+      promptTimerRef.current = setTimeout(() => stopInternal(true), PROMPT_TIMEOUT);
     }, IDLE_TIMEOUT);
-  }, [stopListening]);
+  }, [clearTimers, stopInternal]);
 
   const start = useCallback(() => {
-    if (!isSupported) return;
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-    }
-
+    if (!isSupported || !mountedRef.current) return;
+    stopInternal(false);
+    const generation = ++sessionGenerationRef.current;
     const SpeechRecognition = window.SpeechRecognition || (window as unknown as { webkitSpeechRecognition: typeof window.SpeechRecognition }).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.lang = lang;
@@ -181,117 +225,64 @@ export function useVoiceControl({ lang = "zh-CN", useLLM = false, onCommand }: U
     recognition.interimResults = false;
     recognition.maxAlternatives = 3;
 
+    const isCurrent = () => mountedRef.current
+      && recognitionRef.current === recognition
+      && sessionGenerationRef.current === generation;
+
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const last = event.results[event.results.length - 1];
-      if (!last.isFinal) return;
-
-      // Skip if this utterance took too long (>3s from previous result)
+      if (!last.isFinal || !isCurrent()) return;
       const regexResult = matchFromAlternatives(last);
       const transcript = regexResult.raw;
-
       const voiceEnhancement = getPlatformServices().voiceEnhancement;
-      if (useLLM && getPlatformServices().capabilities.ai && voiceEnhancement) {
-        const llmPromise = Promise.race([
+      if (useLLMRef.current && getPlatformServices().capabilities.ai && voiceEnhancement) {
+        void Promise.race([
           voiceEnhancement.interpret(transcript),
-          new Promise<VoiceEnhancementResult>((resolve) =>
-            setTimeout(() => resolve({ command: "unknown", enhanced: false }), 5000)
-          ),
-        ]);
-
-        llmPromise.then((llmResult) => {
-          if (llmResult.command !== "unknown") {
-            const finalResult: VoiceCommandResult = {
-              command: llmResult.command,
-              raw: transcript,
-              confidence: regexResult.confidence,
-              repeat: llmResult.repeat,
-              gotoCol: llmResult.gotoCol,
-              gotoRow: llmResult.gotoRow,
-            };
-            setLastResult(finalResult);
-            onCommandRef.current(finalResult);
-            resetIdleTimer();
-          } else {
-            // LLM failed — show debug info in raw
-            const finalResult: VoiceCommandResult = {
-              command: "unknown",
-              raw: `${transcript} | ${llmResult.debug ?? "no response"}`,
-              confidence: regexResult.confidence,
-            };
-            setLastResult(finalResult);
-            onCommandRef.current(finalResult);
-          }
+          new Promise<VoiceEnhancementResult>((resolve) => setTimeout(() => resolve({ command: "unknown", enhanced: false }), 5000)),
+        ]).then((llmResult) => {
+          if (!isCurrent()) return;
+          const finalResult = resolveEnhancedVoiceCommand(regexResult, llmResult);
+          setLastResult(finalResult);
+          onCommandRef.current(finalResult);
+          if (finalResult.command !== "unknown") resetIdleTimer();
         });
-
         return;
       }
-
-      // No LLM token — regex only
       setLastResult(regexResult);
       onCommandRef.current(regexResult);
-      if (regexResult.command !== "unknown") {
-        resetIdleTimer();
-      }
+      if (regexResult.command !== "unknown") resetIdleTimer();
     };
 
     recognition.onerror = (event) => {
-      // "no-speech" is normal when user is silent — just keep listening
-      if (event.error === "no-speech" || event.error === "aborted") return;
+      if (!isCurrent() || event.error === "no-speech" || event.error === "aborted") return;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed" || event.error === "audio-capture") {
+        stopInternal(true);
+        return;
+      }
       console.warn("Voice recognition error:", event.error);
     };
-
     recognition.onend = () => {
-      // Auto-restart if still supposed to be listening
-      if (recognitionRef.current === recognition) {
-        try {
-          recognition.start();
-        } catch {
-          // Already started or stopped
-        }
-      }
+      if (!isCurrent()) return;
+      try { recognition.start(); } catch { /* already running */ }
     };
-
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
     resetIdleTimer();
-  }, [isSupported, lang, resetIdleTimer]);
+  }, [isSupported, lang, resetIdleTimer, stopInternal]);
 
-  const stop = useCallback(() => {
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-    if (promptTimerRef.current) {
-      clearTimeout(promptTimerRef.current);
-      promptTimerRef.current = null;
-    }
-    if (recognitionRef.current) {
-      const ref = recognitionRef.current;
-      recognitionRef.current = null;
-      ref.abort();
-    }
-    setIsListening(false);
-    setLastResult(null);
-  }, []);
+  const stop = useCallback(() => stopInternal(true), [stopInternal]);
+  const toggle = useCallback(() => isListening ? stop() : start(), [isListening, start, stop]);
 
-  const toggle = useCallback(() => {
-    if (isListening) {
-      stop();
-    } else {
-      start();
-    }
-  }, [isListening, start, stop]);
-
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-    };
-  }, []);
+    if (!isListening) return;
+    start();
+  }, [lang]);
+
+  useEffect(
+    () => beginVoiceLifecycle(mountedRef, () => stopInternal(false)),
+    [stopInternal],
+  );
 
   return { isListening, isSupported, lastResult, start, stop, toggle };
 }

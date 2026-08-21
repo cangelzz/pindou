@@ -1,4 +1,5 @@
 import { useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
 import type { ColorOverrideMap } from "../../utils/colorHelper";
@@ -62,15 +63,16 @@ function renderPreview(
   }
 }
 
-function formatTime(iso: string): string {
+function formatTime(iso: string, locale: string): string {
   try {
-    return new Date(iso).toLocaleString();
+    return new Date(iso).toLocaleString(locale);
   } catch {
     return iso;
   }
 }
 
 export function CloudComparePreview(props: ComparePreviewProps) {
+  const { t, i18n } = useTranslation();
   const localRef = useRef<HTMLCanvasElement>(null);
   const cloudRef = useRef<HTMLCanvasElement>(null);
   const colorOverrides = useEditorStore((s) => s.colorOverrides);
@@ -90,31 +92,31 @@ export function CloudComparePreview(props: ComparePreviewProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
       <div className="bg-white rounded-lg shadow-xl w-[520px] p-4">
-        <h2 className="font-semibold text-sm mb-1">云端版本已更新</h2>
-        <p className="text-xs text-gray-500 mb-3">云端版本比本地更新，请选择保留哪个版本。</p>
+        <h2 className="font-semibold text-sm mb-1">{t("cloud.compare.title")}</h2>
+        <p className="text-xs text-gray-500 mb-3">{t("cloud.compare.message")}</p>
 
         <div className="flex gap-4 justify-center mb-4">
           <div className="flex flex-col items-center">
-            <div className="text-xs font-semibold text-blue-600 mb-1">本地���本</div>
+            <div className="text-xs font-semibold text-blue-600 mb-1">{t("cloud.compare.local")}</div>
             <canvas
               ref={localRef}
               className="border border-gray-300 rounded"
               style={{ imageRendering: "pixelated" }}
             />
             <div className="text-[10px] text-gray-400 mt-1">
-              {props.localSize.width}×{props.localSize.height} · {formatTime(props.localTimestamp)}
+              {props.localSize.width}×{props.localSize.height} · {formatTime(props.localTimestamp, i18n.language)}
             </div>
           </div>
 
           <div className="flex flex-col items-center">
-            <div className="text-xs font-semibold text-green-600 mb-1">云端版本</div>
+            <div className="text-xs font-semibold text-green-600 mb-1">{t("cloud.compare.remote")}</div>
             <canvas
               ref={cloudRef}
               className="border border-gray-300 rounded"
               style={{ imageRendering: "pixelated" }}
             />
             <div className="text-[10px] text-gray-400 mt-1">
-              {props.cloudSize.width}×{props.cloudSize.height} · {formatTime(props.cloudTimestamp)}
+              {props.cloudSize.width}×{props.cloudSize.height} · {formatTime(props.cloudTimestamp, i18n.language)}
             </div>
           </div>
         </div>
@@ -124,19 +126,19 @@ export function CloudComparePreview(props: ComparePreviewProps) {
             onClick={props.onChooseLocal}
             className="px-3 py-1.5 text-xs rounded bg-blue-500 text-white hover:bg-blue-600"
           >
-            覆盖云端
+            {t("cloud.compare.chooseLocal")}
           </button>
           <button
             onClick={props.onChooseCloud}
             className="px-3 py-1.5 text-xs rounded bg-green-500 text-white hover:bg-green-600"
           >
-            下载云端
+            {t("cloud.compare.chooseCloud")}
           </button>
           <button
             onClick={props.onCancel}
             className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
           >
-            取消
+            {t("cloud.compare.cancel")}
           </button>
         </div>
       </div>

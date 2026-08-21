@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { callStore, getStore, test } from "./fixtures";
+import { callStore, getStore, setUiLanguage, test } from "./fixtures";
 
 const v3Project = {
   version: 3,
@@ -13,6 +13,7 @@ const v3Project = {
 };
 
 test("test build exposes real store actions without shipping the seam", async ({ editor }) => {
+  await setUiLanguage(editor, "zh-CN");
   await callStore(editor, "setCell", [0, 0, 7]);
   const state = await getStore<{ isDirty: boolean; canvasData: Array<Array<{ colorIndex: number | null }>> }>(editor, ["isDirty", "canvasData"]);
   expect(state.isDirty).toBe(true);
@@ -20,6 +21,7 @@ test("test build exposes real store actions without shipping the seam", async ({
 });
 
 test("dirty New cancellation preserves content and confirmation clears identity", async ({ editor }) => {
+  await setUiLanguage(editor, "zh-CN");
   await callStore(editor, "setCell", [0, 0, 9]);
   await editor.getByTestId("top-menu").locator('[data-menu-id="new"]').click();
   await expect(editor.getByRole("heading", { name: "未保存的修改" })).toBeVisible();
@@ -41,6 +43,7 @@ test("dirty New cancellation preserves content and confirmation clears identity"
 });
 
 test("dirty Open cancellation never launches the picker and preserves content", async ({ editor }) => {
+  await setUiLanguage(editor, "zh-CN");
   await callStore(editor, "setCell", [0, 0, 10]);
   await editor.evaluate(() => {
     (globalThis as any).__openPickerCalls = 0;
@@ -56,6 +59,7 @@ test("dirty Open cancellation never launches the picker and preserves content", 
 });
 
 test("clean New opens directly and resets the canvas", async ({ editor }) => {
+  await setUiLanguage(editor, "zh-CN");
   await editor.getByTestId("top-menu").locator('[data-menu-id="new"]').click();
   await expect(editor.getByText("新建画布")).toBeVisible();
   await expect(editor.getByRole("heading", { name: "未保存的修改" })).toHaveCount(0);
@@ -125,6 +129,7 @@ test("download fallback emits v3 on every save", async ({ context, extensionId }
 });
 
 test("autosave and snapshots survive closing and reopening the editor page", async ({ context, editor, extensionId }) => {
+  await setUiLanguage(editor, "zh-CN");
   await callStore(editor, "setCell", [0, 0, 12]);
   expect(await callStore<any>(editor, "autoSave")).toMatchObject({ ok: true });
   expect(await callStore<any>(editor, "createSnapshot", ["Restart snapshot"])).toMatchObject({ ok: true });
@@ -156,6 +161,7 @@ test("autosave and snapshots survive closing and reopening the editor page", asy
 });
 
 test("web image context task opens the real wizard and acknowledges storage", async ({ editor }) => {
+  await setUiLanguage(editor, "zh-CN");
   await editor.addInitScript(() => {
     const original = globalThis.fetch.bind(globalThis);
     globalThis.fetch = async (input, init) => {
@@ -176,15 +182,42 @@ test("web image context task opens the real wizard and acknowledges storage", as
   await expect.poll(() => editor.evaluate(async () => Object.keys(await chrome.storage.local.get(null)).filter((key) => key.startsWith("pindou.webImageTask.")).length)).toBe(0);
 });
 
-test("web image fetch failure offers local fallback", async ({ editor }) => {
-  await editor.addInitScript(() => {
-    globalThis.fetch = async () => new Response("no", { status: 503 });
+for (const locale of [
+  { language: "en" as const, title: "Could not read web image", local: "Choose Local Image" },
+  { language: "zh-CN" as const, title: "无法读取网页图片", local: "选择本地图片" },
+]) {
+  test(`web image fetch failure fallback is localized (${locale.language})`, async ({ editor }) => {
+    await setUiLanguage(editor, locale.language);
+    await editor.addInitScript(() => {
+      globalThis.fetch = async () => new Response("no", { status: 503 });
+    });
+    await editor.reload();
+    expect(await editor.evaluate(() => chrome.runtime.sendMessage({ type: "pindou:test", action: "image-context", payload: { srcUrl: "https://images.test/fail.png" } }))).toMatchObject({ ok: true });
+    const dialog = editor.getByRole("heading", { name: locale.title }).locator("xpath=ancestor::div[contains(@class, 'fixed')]");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: locale.local })).toBeVisible();
+    if (locale.language === "en") expect(await dialog.innerText()).not.toMatch(/[㐀-鿿]/);
   });
-  await editor.reload();
-  expect(await editor.evaluate(() => chrome.runtime.sendMessage({ type: "pindou:test", action: "image-context", payload: { srcUrl: "https://images.test/fail.png" } }))).toMatchObject({ ok: true });
-  await expect(editor.getByRole("heading", { name: "无法读取网页图片" })).toBeVisible();
-  await expect(editor.getByRole("button", { name: "选择本地图片" })).toBeVisible();
-});
+}
+
+for (const locale of [
+  { language: "en" as const, imageTitle: "Import Image", exportTitle: "Export High-Resolution Image" },
+  { language: "zh-CN" as const, imageTitle: "导入图片", exportTitle: "导出高分辨率图片" },
+]) {
+  test(`image and export dialogs are localized (${locale.language})`, async ({ editor }) => {
+    await setUiLanguage(editor, locale.language);
+    await editor.locator('[data-menu-id="import-image"]').click();
+    const imageDialog = editor.getByRole("heading", { name: locale.imageTitle }).locator("xpath=ancestor::div[contains(@class, 'fixed')]");
+    await expect(imageDialog).toBeVisible();
+    if (locale.language === "en") expect((await imageDialog.innerText()).replace(/PindouVerse/g, "")).not.toMatch(/[㐀-鿿]/);
+    await imageDialog.locator("button").first().evaluate((button: HTMLButtonElement) => button.click());
+
+    await editor.locator('[data-menu-id="export"]').click();
+    const exportDialog = editor.getByRole("heading", { name: locale.exportTitle }).locator("xpath=ancestor::div[contains(@class, 'fixed')]");
+    await expect(exportDialog).toBeVisible();
+    if (locale.language === "en") expect((await exportDialog.innerText()).replace(/PindouVerse/g, "")).not.toMatch(/[㐀-鿿]/);
+  });
+}
 
 test("persisted ordinary tab id is rejected by the editor identity handshake", async ({ context, editor, extensionId }) => {
   const ordinary = await context.newPage();

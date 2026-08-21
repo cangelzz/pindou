@@ -1,4 +1,5 @@
 import type { ExternalLinkService, WindowService } from "./services";
+import { i18n } from "../i18n";
 
 export const tauriExternalLinks: ExternalLinkService = {
   availability: "available",
@@ -32,7 +33,7 @@ export const tauriWindowService: WindowService = {
         let shouldClose = false;
         try {
           const { ask } = await import("@tauri-apps/plugin-dialog");
-          shouldClose = await ask("有未保存的修改，确定要退出吗？", { title: "退出确认", kind: "warning" });
+          shouldClose = await ask(i18n.t("window.closeConfirm"), { title: i18n.t("window.closeTitle"), kind: "warning" });
         } catch {
           shouldClose = true;
         } finally {

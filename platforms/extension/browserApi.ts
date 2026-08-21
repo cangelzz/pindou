@@ -50,6 +50,7 @@ export interface BrowserApi {
     onClicked: { addListener(handler: (info: { menuItemId: string; srcUrl?: string; pageUrl?: string }) => void): void };
   };
   storage: { local: BrowserStorageArea };
+  i18n: { getUILanguage(): string; getMessage?(key: string): string };
 }
 
 export interface ChromeApiLike extends BrowserApi {}
@@ -89,6 +90,10 @@ export function createBrowserApi(chromeApi: ChromeApiLike): BrowserApi {
       set: chromeApi.storage.local.set.bind(chromeApi.storage.local),
       remove: chromeApi.storage.local.remove.bind(chromeApi.storage.local),
     } },
+    i18n: {
+      getUILanguage: chromeApi.i18n.getUILanguage.bind(chromeApi.i18n),
+      getMessage: chromeApi.i18n.getMessage?.bind(chromeApi.i18n),
+    },
   };
 }
 

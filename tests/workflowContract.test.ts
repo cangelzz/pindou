@@ -6,7 +6,11 @@ const root = resolve(import.meta.dirname, "..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const ci = read(".github/workflows/ci.yml");
 const release = read(".github/workflows/release.yml");
-const scripts = (JSON.parse(read("package.json")) as { scripts: Record<string, string> }).scripts;
+const rootPackage = JSON.parse(read("package.json")) as { version: string; scripts: Record<string, string> };
+const scripts = rootPackage.scripts;
+const vscodePackage = JSON.parse(read("platforms/vscode/package.json")) as { version: string; scripts: Record<string, string> };
+const vscodeLock = JSON.parse(read("platforms/vscode/package-lock.json")) as { version: string; packages: Record<string, { version?: string }> };
+const vscodeScripts = vscodePackage.scripts;
 
 function indentedBlock(source: string, header: string, indent: number) {
   const lines = source.split("\n");
@@ -58,10 +62,19 @@ describe("browser extension workflow contract", () => {
       "ext:test:packaging",
       "ext:test:contract",
       "ext:test:e2e",
+      "ext:screenshots:validate",
+      "test:screenshots",
       "ext:package",
     ]) {
       expect(scripts[name], `missing package script ${name}`).toBeTypeOf("string");
     }
+  });
+
+  it("wires VS Code unit tests into its standard test command and CI", () => {
+    expect(vscodeScripts["test:unit"]).toBe("vitest run --config vitest.config.ts");
+    expect(vscodeScripts.test).toContain("npm run test:unit");
+    const job = jobBlock(ci, "test-vscode");
+    expect(job).toContain("run: cd platforms/vscode && npm run test:unit");
   });
 
   it("tests, validates, packages, and always uploads browser extension CI artifacts", () => {
@@ -79,6 +92,7 @@ describe("browser extension workflow contract", () => {
       "run: npm run ext:test:packaging",
       "run: npm run ext:test:contract",
       "run: xvfb-run -a npm run ext:test:e2e",
+      "run: npm run test:screenshots",
       "run: npm run ext:package",
     ];
     expectOrdered(job, commands);
@@ -110,38 +124,20 @@ describe("browser extension workflow contract", () => {
     expect(jobBlock(release, "build-and-upload")).toContain("needs: [compute-version, create-draft-release]");
   });
 
-  it("builds and uploads version-matched Chrome and Edge assets before finalizing release", () => {
-    const job = jobBlock(release, "build-browser-extensions");
-    expect(job).toContain("needs: [compute-version, create-draft-release]");
-    expect(actionStep(job, "actions/checkout@v6")).toContain("fetch-depth: 0");
-    const setup = actionStep(job, "actions/setup-node@v6");
-    expect(setup).toContain("node-version: 22");
-    expect(setup).toContain("cache: npm");
-    expectOrdered(job, [
-      "run: npm ci",
-      "run: npm run ext:build:chrome",
-      "run: npm run ext:build:edge",
-      "run: npm run ext:validate",
-      "run: npm run ext:package",
-      "- name: Assert versioned extension artifacts",
-      "- name: Upload extension assets to draft release",
-    ]);
-    const assertion = namedStep(job, "Assert versioned extension artifacts");
-    expect(assertion).toContain("VERSION: ${{ needs.compute-version.outputs.version }}");
-    expect(assertion).toContain('test "$(node scripts/version.mjs)" = "${VERSION}"');
-    expect(assertion).toContain('pindouverse-chrome-${VERSION}.zip');
-    expect(assertion).toContain('pindouverse-edge-${VERSION}.zip');
-    expect(assertion).not.toContain("if:");
-    const upload = namedStep(job, "Upload extension assets to draft release");
-    expect(upload).toContain("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
-    expect(upload).toContain("TAG: ${{ needs.compute-version.outputs.tag }}");
-    expect(upload).toContain("VERSION: ${{ needs.compute-version.outputs.version }}");
-    expect(upload).toContain('gh release upload "${TAG}"');
-    expect(upload).toContain('pindouverse-chrome-${VERSION}.zip');
-    expect(upload).toContain('pindouverse-edge-${VERSION}.zip');
-    expect(upload).toContain("--clobber");
-    expect(upload).not.toContain("if:");
-    expect(job).not.toMatch(/chrome web store|edge add-ons|webstore/i);
-    expect(jobBlock(release, "finalize-release")).toMatch(/needs:\s*\[compute-version, create-draft-release, build-and-upload, build-browser-extensions\]/);
+  it("keeps extension products at 1.4.0 while desktop version files remain unchanged", () => {
+    expect(vscodePackage.version).toBe("1.4.0");
+    expect(vscodeLock.version).toBe(vscodePackage.version);
+    expect(vscodeLock.packages[""].version).toBe(vscodePackage.version);
+    expect(rootPackage.version).toBe("1.3.4");
+    expect(read("VERSION").trim()).toBe("1.3");
+    expect(read("src-tauri/Cargo.toml")).toMatch(/^version = "1\.3\.4"$/m);
+    expect(JSON.parse(read("src-tauri/tauri.conf.json")).version).toBe("1.3.4");
+  });
+
+  it("keeps the root GitHub release desktop-only", () => {
+    expect(release).not.toMatch(/^  build-browser-extensions:$/m);
+    expect(release).not.toContain("pindouverse-chrome-");
+    expect(release).not.toContain("pindouverse-edge-");
+    expect(jobBlock(release, "finalize-release")).toMatch(/needs:\s*\[compute-version, create-draft-release, build-and-upload\]/);
   });
 });

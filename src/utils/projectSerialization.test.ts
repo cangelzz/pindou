@@ -223,6 +223,25 @@ describe("serializeProjectToV3", () => {
     expect(back.layers[0].data).toEqual([[3]]);
   });
 
+  it("canonicalizes generated layer names before serialization", () => {
+    const original = {
+      version: 3, canvasSize: { width: 1, height: 1 }, canvasData: [[{ colorIndex: null }]],
+      layers: [{ id: "layer", name: "图层 7", data: [[{ colorIndex: null }]], visible: true, opacity: 1, defaultNameIndex: 7 }],
+      createdAt: "t", updatedAt: "t",
+    } as any;
+    const layer = JSON.parse(serializeProjectToV3(original)).layers[0];
+    expect(layer).toMatchObject({ name: "Layer 7", defaultNameIndex: 7 });
+  });
+
+  it("rejects invalid generated default-name indexes", () => {
+    const original = {
+      version: 3, canvasSize: { width: 1, height: 1 }, canvasData: [[{ colorIndex: null }]],
+      layers: [{ id: "layer", name: "Layer", data: [[{ colorIndex: null }]], visible: true, opacity: 1 }],
+      createdAt: "t", updatedAt: "t",
+    } as any;
+    expect(normalizeProjectFromDisk(JSON.stringify({ ...original, layers: [{ ...original.layers[0], defaultNameIndex: "7" }] })).layers?.[0].defaultNameIndex).toBeUndefined();
+  });
+
   it("round-trip is logically idempotent for a v3 in-memory object", () => {
     const original = {
       version: 2,

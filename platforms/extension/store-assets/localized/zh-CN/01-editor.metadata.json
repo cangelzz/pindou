@@ -1,0 +1,34 @@
+{
+  "image": "01-editor.png",
+  "locale": "zh-CN",
+  "scenario": "editor",
+  "sample": "dinosaur-rex.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "2ad369c9e21f370ef02e6b6a2bf706571b974e7cd29fc37ea04ce6c76a75a28a",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 222,
+      "y": 92.328125,
+      "width": 552,
+      "height": 616
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 8,
+      "offsetX": 174,
+      "offsetY": 17
+    }
+  }
+}

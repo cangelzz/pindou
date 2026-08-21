@@ -19,8 +19,9 @@ export const FIXTURES_DIR = path.join(__dirname, "fixtures");
  * The mock is intentionally permissive: any unknown request type with a
  * requestId gets a generic `{ success: true }` reply so tests don't hang.
  */
-export function createTestHtml(): string {
+export function createTestHtml(options: { savedLanguage?: string; systemLanguage?: string; storageError?: boolean; ignoreUiRpc?: boolean } = {}): string {
   const scriptPath = path.join(DIST_DIR, "assets/index.js").replace(/\\/g, "/");
+  const startupOptions = JSON.stringify(options).replace(/</g, "\\u003c");
   const stylePath = path.join(DIST_DIR, "assets/style.css").replace(/\\/g, "/");
 
   return `<!DOCTYPE html>
@@ -38,6 +39,7 @@ export function createTestHtml(): string {
   <div id="root"></div>
   <script>
     const _messages = [];
+    const _startupOptions = ${startupOptions};
     const _writes = [];      // captured writeFile / save / saveAs payloads
     const _stagedReplies = {}; // type -> array of canned replies (consumed FIFO)
 
@@ -64,10 +66,12 @@ export function createTestHtml(): string {
           // 2. capture writes for later assertion
           if (msg.type === "save") {
             _writes.push({ kind: "save", content: msg.content });
-            // Echo loadDocument back to keep the editor synced (mirrors host)
-            window._lastSavedContent = msg.content;
+            const stage = _stagedReplies.save && _stagedReplies.save.shift();
+            if (stage && stage.timeout) return;
+            const success = !stage || stage.success !== false;
             setTimeout(() => {
-              _dispatch({
+              _dispatch({ type: "saveResult", requestId: msg.requestId, success, error: stage && stage.error });
+              if (success) _dispatch({
                 type: "loadDocument",
                 content: msg.content,
                 path: window._currentDocPath || "/test/test.pindou",
@@ -79,6 +83,7 @@ export function createTestHtml(): string {
 
           // 3. requests with a requestId need a matching reply
           if (msg.requestId === undefined) return;
+          if (_startupOptions.ignoreUiRpc && (msg.type === "storageGet" || msg.type === "getUiEnvironment")) return;
 
           const stage = _stagedReplies[msg.type] && _stagedReplies[msg.type].shift();
           let reply;
@@ -89,8 +94,12 @@ export function createTestHtml(): string {
               reply = {
                 type: "dialogResult",
                 requestId: msg.requestId,
-                path: stage !== undefined ? stage : null,
+                path: stage && typeof stage === "object" && stage.defer ? stage.path : stage !== undefined ? stage : null,
               };
+              if (stage && typeof stage === "object" && stage.defer) {
+                window._resolveDeferredOpen = () => _dispatch(reply);
+                return;
+              }
               break;
             case "readFile":
               // stage is { data: base64, error?: string }
@@ -118,17 +127,19 @@ export function createTestHtml(): string {
                 requestId: msg.requestId,
                 success: !stage || stage.success !== false,
               };
-              // Mirror host: switch active doc to the new path
-              window._currentDocPath = msg.path;
-              window._currentDocIsUntitled = false;
-              setTimeout(() => {
-                _dispatch({
-                  type: "loadDocument",
-                  content: msg.content,
-                  path: msg.path,
-                  isUntitled: false,
-                });
-              }, 20);
+              // Mirror host only after a successful save-as.
+              if (reply.success) {
+                window._currentDocPath = msg.path;
+                window._currentDocIsUntitled = false;
+                setTimeout(() => {
+                  _dispatch({
+                    type: "loadDocument",
+                    content: msg.content,
+                    path: msg.path,
+                    isUntitled: false,
+                  });
+                }, 20);
+              }
               break;
             case "getAutosaveDir":
               reply = {
@@ -164,6 +175,26 @@ export function createTestHtml(): string {
                 account: stage ? stage.account : null,
               };
               break;
+            case "getUiEnvironment":
+              reply = { type: "uiEnvironment", requestId: msg.requestId, language: _startupOptions.systemLanguage || "en" };
+              break;
+            case "storageGet":
+              reply = _startupOptions.storageError
+                ? { type: "storageResult", requestId: msg.requestId, error: "storage unavailable" }
+                : { type: "storageResult", requestId: msg.requestId, value: window.name || _startupOptions.savedLanguage };
+              break;
+            case "storageSet":
+              if (_startupOptions.storageError) {
+                reply = { type: "storageResult", requestId: msg.requestId, error: "storage unavailable" };
+              } else {
+                _startupOptions.savedLanguage = msg.value;
+                window.name = msg.value;
+                reply = { type: "storageResult", requestId: msg.requestId };
+              }
+              break;
+            case "storageRemove":
+              reply = { type: "storageResult", requestId: msg.requestId };
+              break;
             default:
               // generic ack
               reply = { type: "ack", requestId: msg.requestId, success: true };
@@ -183,12 +214,14 @@ export function createTestHtml(): string {
 let _harnessPath: string | null = null;
 
 /** Boot the webview harness and wait for the React app to mount. */
-export async function setupPage(page: Page): Promise<void> {
-  if (!_harnessPath || !fs.existsSync(_harnessPath)) {
-    const harness = path.join(DIST_DIR, "test-harness.html");
-    fs.writeFileSync(harness, createTestHtml());
-    _harnessPath = harness;
-  }
+export async function setupPage(
+  page: Page,
+  options: { savedLanguage?: string; systemLanguage?: string; storageError?: boolean; ignoreUiRpc?: boolean } = {},
+): Promise<void> {
+  if (options.savedLanguage === undefined && options.systemLanguage === undefined) options = { ...options, savedLanguage: "zh-CN" };
+  const harness = path.join(DIST_DIR, `test-harness-${Date.now()}-${Math.random().toString(16).slice(2)}.html`);
+  fs.writeFileSync(harness, createTestHtml(options));
+  _harnessPath = harness;
   page.on("console", (msg) => {
     if (msg.type() === "error") console.log(`[webview] ${msg.text()}`);
   });

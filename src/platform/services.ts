@@ -6,6 +6,7 @@ import type { ProjectDocumentRef, ProjectFileService } from "./projectFileServic
 import type { RecoveryStorage } from "./recoveryStorage";
 import type { ImageImportService } from "./imageImportService";
 import type { VoiceCommand } from "../hooks/useVoiceControl";
+import { i18n } from "../i18n";
 export type { ProjectDocumentRef, OpenedProject, ProjectFileService } from "./projectFileService";
 export type { ImageImportAsset, ImageImportService, WebImageTask } from "./imageImportService";
 export type { RecoveryStorage } from "./recoveryStorage";
@@ -122,6 +123,8 @@ export interface DeviceCodeInfo {
   interval: number;
 }
 
+export type DeviceFlowStatus = "authorization-pending" | "slow-down" | "authorized" | "expired" | "denied" | "retrying";
+
 export interface GitHubService {
   readonly availability: ServiceAvailability;
   getSession(): Promise<PlatformResult<GitHubSession | null>>;
@@ -130,7 +133,7 @@ export interface GitHubService {
   readonly configured?: boolean;
   login(): Promise<PlatformResult<GitHubSession>>;
   startDeviceFlow?(signal: AbortSignal): Promise<PlatformResult<DeviceCodeInfo>>;
-  pollDeviceFlow?(info: DeviceCodeInfo, onStatus: (status: string) => void, signal: AbortSignal): Promise<PlatformResult<GitHubSession>>;
+  pollDeviceFlow?(info: DeviceCodeInfo, onStatus: (status: DeviceFlowStatus) => void, signal: AbortSignal): Promise<PlatformResult<GitHubSession>>;
   logout(): Promise<PlatformResult<void>>;
   listProjects(): Promise<PlatformResult<GistProject[]>>;
   uploadProject(name: string, project: ProjectFile, gistId?: string, expectedVersion?: string): Promise<PlatformResult<GistUploadResult>>;
@@ -147,19 +150,9 @@ export interface VoiceEnhancementResult {
   repeat?: number;
   gotoCol?: number;
   gotoRow?: number;
-  debug?: string;
 }
 
 export interface VoiceEnhancementService {
-  readonly labels: {
-    toggle: string;
-    voiceOn: string;
-    voiceOff: string;
-    enabled: string;
-    betaSetting: string;
-    status: string;
-    listening: string;
-  };
   interpret(transcript: string): Promise<VoiceEnhancementResult>;
 }
 
@@ -168,6 +161,10 @@ export interface StorageService {
   get<T>(key: string): Promise<PlatformResult<T | undefined>>;
   set(key: string, value: unknown): Promise<PlatformResult<void>>;
   remove(key: string): Promise<PlatformResult<void>>;
+}
+
+export interface LocaleService {
+  getSystemLanguage(): Promise<PlatformResult<string>>;
 }
 
 export interface ExternalLinkService {
@@ -189,6 +186,7 @@ export interface PlatformServices {
   readonly voiceEnhancement?: VoiceEnhancementService;
   readonly recovery: RecoveryService;
   readonly storage: StorageService;
+  readonly locale: LocaleService;
   readonly externalLinks: ExternalLinkService;
   readonly window?: WindowService;
 }
@@ -216,7 +214,7 @@ export function createLegacyPlatformServices(
       availability: "legacy-adapter",
       chooseLocalImage: async () => {
         try {
-          const path = await adapter.showOpenDialog([{ name: "Image", extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"] }]);
+          const path = await adapter.showOpenDialog([{ name: i18n.t("import.image.fileFilter"), extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"] }]);
           if (!path) return { ok: false, code: "cancelled" };
           return { ok: false, code: "unsupported", message: "Legacy adapter does not expose File objects" };
         } catch (cause) { return { ok: false, code: "unknown", cause }; }
@@ -286,6 +284,9 @@ export function createLegacyPlatformServices(
       get: async <T>(_key: string) => unsupported<T | undefined>("Storage"),
       set: async (_key, _value) => unsupported<void>("Storage"),
       remove: async (_key) => unsupported<void>("Storage"),
+    },
+    locale: {
+      getSystemLanguage: async () => unsupported<string>("Locale"),
     },
     externalLinks: {
       availability: "unsupported",

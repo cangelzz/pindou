@@ -17,7 +17,7 @@ test("browser restart preserves token, settings, autosave record and restores sn
     await page.getByTestId("top-menu").waitFor();
     await page.evaluate(async () => {
       chrome.storage.local.set({ "github.accessToken": "restart-token" });
-      localStorage.setItem("pindou_blueprint_decorations", JSON.stringify({ showHeader: false }));
+      localStorage.setItem("pindouverse.exportWatermark", JSON.stringify({ showHeader: false }));
     });
     await callStore(page, "setCell", [0, 0, 23]);
     expect(await callStore(page, "autoSave")).toMatchObject({ ok: true });
@@ -37,7 +37,7 @@ test("browser restart preserves token, settings, autosave record and restores sn
     await reopened.goto(`chrome-extension://${secondId}/index.html`);
     await reopened.getByTestId("top-menu").waitFor();
     expect(await reopened.evaluate(async () => (await chrome.storage.local.get("github.accessToken"))["github.accessToken"])).toBe("restart-token");
-    expect(await reopened.evaluate(() => JSON.parse(localStorage.getItem("pindou_blueprint_decorations") || "null"))).toEqual({ showHeader: false });
+    expect(await reopened.evaluate(() => JSON.parse(localStorage.getItem("pindouverse.exportWatermark") || "null"))).toEqual({ showHeader: false });
     const autosave = await reopened.evaluate(async () => {
       const request = indexedDB.open("pindouverse", 2);
       const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });

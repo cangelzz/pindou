@@ -58,44 +58,6 @@ jobs:
               --notes "PindouVerse ${VERSION}"
           fi
 
-  build-browser-extensions:
-    needs: [compute-version, create-draft-release]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Build Chrome extension
-        run: npm run ext:build:chrome
-      - name: Build Edge extension
-        run: npm run ext:build:edge
-      - name: Validate extension builds
-        run: npm run ext:validate
-      - name: Package Chrome and Edge extensions
-        run: npm run ext:package
-      - name: Assert versioned extension artifacts
-        env:
-          VERSION: ${{ needs.compute-version.outputs.version }}
-        run: |
-          test "$(node scripts/version.mjs)" = "${VERSION}"
-          test -f "artifacts/pindouverse-chrome-${VERSION}.zip"
-          test -f "artifacts/pindouverse-edge-${VERSION}.zip"
-      - name: Upload extension assets to draft release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.compute-version.outputs.tag }}
-          VERSION: ${{ needs.compute-version.outputs.version }}
-        run: |
-          gh release upload "${TAG}" \
-            "artifacts/pindouverse-chrome-${VERSION}.zip" \
-            "artifacts/pindouverse-edge-${VERSION}.zip" \
-            --clobber
-
   build-and-upload:
     needs: [compute-version, create-draft-release]
     strategy:
@@ -136,7 +98,7 @@ jobs:
           args: --target ${{ matrix.target }}
 
   finalize-release:
-    needs: [compute-version, create-draft-release, build-and-upload, build-browser-extensions]
+    needs: [compute-version, create-draft-release, build-and-upload]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

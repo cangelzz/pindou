@@ -5,4 +5,9 @@ describe("canonicalizeProject", () => {
   it("ignores layer property insertion order", () => { const layer = { data: base.layers[0].data, opacity: 1, visible: true, name: "L", id: "l" }; expect(canonicalizeProject({ ...base, layers: [layer] })).toBe(canonicalizeProject(base)); });
   it("ignores projectInfo and grid property order", () => { const changed = { ...base, gridConfig: { visible: true, groupSize: 5 }, projectInfo: { author: "A", title: "T" } }; expect(canonicalizeProject(changed)).toBe(canonicalizeProject(base)); });
   it("detects actual cell changes", () => { const changed = structuredClone(base); changed.layers[0].data[0][0].colorIndex = 2; expect(canonicalizeProject(changed)).not.toBe(canonicalizeProject(base)); });
+  it("ignores localized persisted names for marked default layers", () => {
+    const canonical = { ...base, layers: [{ ...base.layers[0], name: "Layer 4", defaultNameIndex: 4 }] };
+    const localized = { ...base, layers: [{ ...base.layers[0], name: "图层 4", defaultNameIndex: 4 }] };
+    expect(canonicalizeProject(localized)).toBe(canonicalizeProject(canonical));
+  });
 });

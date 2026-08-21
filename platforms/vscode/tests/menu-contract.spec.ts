@@ -5,7 +5,7 @@ import { DIST_DIR, setupPage, setStoreState } from "./helpers";
 
 const coreOrder = [
   "new", "resize", "open", "save", "save-as", "project-info",
-  "import-image", "import-blueprint", "export", "history", "version", "login", "feedback",
+  "import-image", "import-blueprint", "export", "history", "version", "language", "login", "feedback",
 ];
 
 async function menuIds(page: import("@playwright/test").Page) {
@@ -20,19 +20,31 @@ async function topLayout(page: import("@playwright/test").Page) {
   );
 }
 
-test("VS Code renders the shared top-menu contract in strict order", async ({ page }) => {
-  await setupPage(page);
-  await expect(page.locator('[data-testid="top-menu"]')).toHaveCount(1);
-  expect(await menuIds(page)).toEqual(coreOrder);
-  expect(await topLayout(page)).toEqual([
-    "new", "resize", "open", "save", "save-as", "project-info", "separator:files",
-    "import-image", "import-blueprint", "export", "separator:history", "history",
-    "version", "login", "feedback",
-  ]);
-  await expect(page.locator('[data-menu-id="import-blueprint"]')).toBeEnabled();
-  await expect(page.locator('[data-menu-id="import-blueprint"]')).toContainText("BETA");
-  await expect(page.locator('[data-menu-id="feedback"]')).toHaveAttribute("data-feedback-environment", "VS Code Extension");
-});
+for (const locale of [
+  {
+    language: "en",
+    labels: ["New", "Resize Canvas", "Open", "Save", "Save As", "Project Info", "Import Image", "Import Blueprint BETA", "Export", "History", "Versions", "🌐 中文", "Sign in to GitHub", "Feedback"],
+  },
+  {
+    language: "zh-CN",
+    labels: ["新建", "调整画布", "打开", "保存", "另存为", "项目信息", "导入图片", "导入图纸 BETA", "导出", "历史记录", "版本", "🌐 EN", "登录 GitHub", "反馈"],
+  },
+] as const) {
+  test(`VS Code renders the shared top-menu contract in strict order (${locale.language})`, async ({ page }) => {
+    await setupPage(page, { savedLanguage: locale.language });
+    await expect(page.locator('[data-testid="top-menu"]')).toHaveCount(1);
+    expect(await menuIds(page)).toEqual(coreOrder);
+    expect(await page.locator('[data-testid="top-menu"] > [data-menu-id]').allTextContents()).toEqual(locale.labels);
+    expect(await topLayout(page)).toEqual([
+      "new", "resize", "open", "save", "save-as", "project-info", "separator:files",
+      "import-image", "import-blueprint", "export", "separator:history", "history",
+      "version", "language", "login", "feedback",
+    ]);
+    await expect(page.locator('[data-menu-id="import-blueprint"]')).toBeEnabled();
+    await expect(page.locator('[data-menu-id="import-blueprint"]')).toContainText("BETA");
+    await expect(page.locator('[data-menu-id="feedback"]')).toHaveAttribute("data-feedback-environment", "VS Code Extension");
+  });
+}
 
 const matrix = [
   { name: "none", baseline: false, session: false, gist: false },
@@ -62,7 +74,7 @@ for (const state of matrix) {
     expect(await menuIds(page)).toEqual([
       "new", "resize", "open", "save", "save-as", "project-info",
       "import-image", "import-blueprint", "export",
-      "history", ...conditional, "version",
+      "history", ...conditional, "version", "language",
       state.session ? "logged-in" : "login", "feedback",
     ]);
     await expect(page.locator('[data-menu-id="compare"]')).toHaveCount(state.baseline ? 1 : 0);

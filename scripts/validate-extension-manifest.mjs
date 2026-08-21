@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import yauzl from "yauzl";
-import { computeVersion } from "./version.mjs";
+import { readExtensionVersion } from "./extension-version.mjs";
 
 const PERMISSIONS = ["storage", "contextMenus"];
 const HOST_PERMISSIONS = [
@@ -71,9 +71,9 @@ export function validateManifest(manifest, root, expectedVersion, fileExists) {
 }
 
 const EXPECTED_LOCALES = {
-  en: { extensionName: "PindouVerse", extensionShortName: "PindouVerse" },
-  zh_CN: { extensionName: "PindouVerse - 拼豆宇宙", extensionShortName: "PindouVerse" },
-  zh_TW: { extensionName: "PindouVerse - 拼豆宇宙", extensionShortName: "PindouVerse" },
+  en: { extensionName: "PindouVerse", extensionShortName: "PindouVerse", contextMenuConvertImage: "Convert with PindouVerse" },
+  zh_CN: { extensionName: "PindouVerse - 拼豆宇宙", extensionShortName: "PindouVerse", contextMenuConvertImage: "在 PindouVerse 中转换" },
+  zh_TW: { extensionName: "PindouVerse - 拼豆宇宙", extensionShortName: "PindouVerse", contextMenuConvertImage: "在 PindouVerse 中转换" },
 };
 const EXPECTED_LOCALE_NAMES = new Set(Object.keys(EXPECTED_LOCALES));
 const EXPECTED_LOCALE_PATHS = new Set(Object.keys(EXPECTED_LOCALES).map((locale) => `_locales/${locale}/messages.json`));
@@ -90,7 +90,7 @@ function localeNamesFromPaths(paths) {
 
 function validateLocaleMessages(messages, locale) {
   assert.ok(messages && typeof messages === "object" && !Array.isArray(messages), `locale ${locale} messages must be an object`);
-  assert.deepEqual(new Set(Object.keys(messages)), new Set(["extensionName", "extensionShortName"]), `locale ${locale} messages must contain the exact message keys`);
+  assert.deepEqual(new Set(Object.keys(messages)), new Set(Object.keys(EXPECTED_LOCALES[locale])), `locale ${locale} messages must contain the exact message keys`);
   for (const [key, expected] of Object.entries(EXPECTED_LOCALES[locale])) {
     const value = messages[key];
     assert.ok(value && typeof value === "object" && !Array.isArray(value), `locale ${locale} ${key} must be an object`);
@@ -207,7 +207,7 @@ export function validateDirectory(root, expectedVersion) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [root, requestedVersion] = process.argv.slice(2);
   if (!root) throw new Error("Usage: validate-extension-manifest.mjs <dist-or-zip> [version]");
-  const expectedVersion = requestedVersion ?? computeVersion();
+  const expectedVersion = requestedVersion ?? readExtensionVersion();
   if (root.toLowerCase().endsWith(".zip")) await validateZip(resolve(root), expectedVersion);
   else validateDirectory(resolve(root), expectedVersion);
   console.log(`Validated extension manifest: ${relative(process.cwd(), resolve(root))}`);

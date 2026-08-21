@@ -219,10 +219,10 @@ describe("editor recovery semantics", () => {
     const saveAutosave = vi.fn(async () => ({ ok: true as const, value: undefined }));
     const saveProject = vi.fn(); const document = { displayName: "real.pindou", writable: true };
     install({ availability: "available", saveAutosave, loadAutosave: vi.fn(), saveSnapshot: vi.fn(), listSnapshots: vi.fn(), loadSnapshot: vi.fn(), deleteSnapshot: vi.fn() }, { saveProject });
-    useEditorStore.setState({ projectDocument: document, projectPath: "real.pindou", isDirty: true, lastSavedAt: "saved", baselineCanvasData: [[{ colorIndex: 8 }]] });
+    useEditorStore.setState({ projectDocument: document, projectPath: "real.pindou", isDirty: true, saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" }, baselineCanvasData: [[{ colorIndex: 8 }]] });
     await useEditorStore.getState().autoSave();
     expect(saveAutosave).toHaveBeenCalledOnce(); expect(saveProject).not.toHaveBeenCalled();
-    expect(useEditorStore.getState()).toMatchObject({ projectDocument: document, projectPath: "real.pindou", isDirty: true, lastSavedAt: "saved", baselineCanvasData: [[{ colorIndex: 8 }]] });
+    expect(useEditorStore.getState()).toMatchObject({ projectDocument: document, projectPath: "real.pindou", isDirty: true, saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" }, baselineCanvasData: [[{ colorIndex: 8 }]] });
   });
 
   it("updates snapshots locally when create/delete succeeds even if listing fails", async () => {
@@ -258,14 +258,15 @@ describe("editor recovery semantics", () => {
     const saveAutosave = vi.fn().mockResolvedValueOnce({ ok: false, code: "unknown" }).mockResolvedValueOnce({ ok: false, code: "unknown" }).mockResolvedValueOnce({ ok: true, value: undefined });
     install({ availability: "available", saveAutosave, loadAutosave: vi.fn(), saveSnapshot: vi.fn(), listSnapshots: vi.fn(), loadSnapshot: vi.fn(), deleteSnapshot: vi.fn() });
     useEditorStore.setState({ isDirty: true });
+    const ticket = useEditorStore.getState().createAutosaveTicket();
     const first = await useEditorStore.getState().autoSave();
     expect(first).toMatchObject({ ok: false, code: "unknown" });
-    useEditorStore.getState().reportAutosaveResult(first);
+    useEditorStore.getState().reportAutosaveResult(first, ticket);
     expect(useEditorStore.getState().lastAutosaveErrorCode).toBe("unknown");
     await useEditorStore.getState().autoSave();
     expect(useEditorStore.getState().lastAutosaveErrorCode).toBe("unknown");
     const success = await useEditorStore.getState().autoSave();
-    useEditorStore.getState().reportAutosaveResult(success);
+    useEditorStore.getState().reportAutosaveResult(success, ticket);
     expect(useEditorStore.getState().lastAutosaveErrorCode).toBeNull();
   });
 
@@ -283,9 +284,9 @@ describe("editor recovery semantics", () => {
     const document = { displayName: "current.pindou", writable: true }; const baseline = [[{ colorIndex: 7 }]];
     const identity = useEditorStore.getState().projectId;
     install({ availability: "available", saveAutosave: vi.fn(), loadAutosave: vi.fn(), saveSnapshot: vi.fn(), listSnapshots: vi.fn(), loadSnapshot: async () => ({ ok: true, value: { project: project(5), sourceProjectId: identity } }), deleteSnapshot: vi.fn() });
-    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, projectGeneration: 10, cloudGistId: "gist", cloudUpdatedAt: "cloud-time", cloudProjectName: "cloud", baselineCanvasData: baseline, lastSavedAt: "saved" });
+    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, projectGeneration: 10, cloudGistId: "gist", cloudUpdatedAt: "cloud-time", cloudProjectName: "cloud", baselineCanvasData: baseline, saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" } });
     await useEditorStore.getState().restoreSnapshot({ path: "snapshot", name: "snapshot", modified: "now", sourceProjectId: identity });
-    expect(useEditorStore.getState()).toMatchObject({ projectDocument: document, projectPath: "current.pindou", projectGeneration: 11, cloudGistId: "gist", cloudUpdatedAt: "cloud-time", cloudProjectName: "cloud", baselineCanvasData: baseline, lastSavedAt: "saved", isDirty: true, canvasData: [[{ colorIndex: 5 }]] });
+    expect(useEditorStore.getState()).toMatchObject({ projectDocument: document, projectPath: "current.pindou", projectGeneration: 11, cloudGistId: "gist", cloudUpdatedAt: "cloud-time", cloudProjectName: "cloud", baselineCanvasData: baseline, saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" }, isDirty: true, canvasData: [[{ colorIndex: 5 }]] });
   });
 
   it("invalidates pending save results when host document-load actions replace the project", async () => {
@@ -293,15 +294,15 @@ describe("editor recovery semantics", () => {
     const saveProject = vi.fn(() => new Promise((resolve) => { resolveSave = resolve; }));
     install({ availability: "available", saveAutosave: vi.fn(), loadAutosave: vi.fn(), saveSnapshot: vi.fn(), listSnapshots: vi.fn(), loadSnapshot: vi.fn(), deleteSnapshot: vi.fn() }, { saveProject });
     const document = { displayName: "old.pindou", writable: true };
-    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, isDirty: true, lastSavedAt: "before", baselineCanvasData: [[{ colorIndex: 1 }]] });
+    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, isDirty: true, saveStatus: { kind: "saved", at: "2026-08-20T00:00:01.000Z" }, baselineCanvasData: [[{ colorIndex: 1 }]] });
 
     const pendingSave = useEditorStore.getState().saveProject();
     useEditorStore.getState().loadProjectLayers(project(8).layers!, { width: 1, height: 1 });
-    useEditorStore.setState({ projectPath: "loaded.pindou", projectDocument: { displayName: "loaded.pindou", writable: true }, lastSavedAt: "loaded", baselineCanvasData: [[{ colorIndex: 8 }]] });
+    useEditorStore.setState({ projectPath: "loaded.pindou", projectDocument: { displayName: "loaded.pindou", writable: true }, saveStatus: { kind: "saved", at: "2026-08-20T00:00:02.000Z" }, baselineCanvasData: [[{ colorIndex: 8 }]] });
     resolveSave({ ok: true, value: { displayName: "stale.pindou", writable: true } });
     await pendingSave;
 
-    expect(useEditorStore.getState()).toMatchObject({ projectPath: "loaded.pindou", lastSavedAt: "loaded", baselineCanvasData: [[{ colorIndex: 8 }]], canvasData: [[{ colorIndex: 8 }]] });
+    expect(useEditorStore.getState()).toMatchObject({ projectPath: "loaded.pindou", saveStatus: { kind: "saved", at: "2026-08-20T00:00:02.000Z" }, baselineCanvasData: [[{ colorIndex: 8 }]], canvasData: [[{ colorIndex: 8 }]] });
   });
 
   it("ignores a pending restore after another project replacement", async () => {
@@ -336,22 +337,22 @@ describe("editor recovery semantics", () => {
     const saveProject = vi.fn(() => new Promise((resolve) => { resolveSave = resolve; }));
     install({ availability: "available", saveAutosave: vi.fn(), loadAutosave: vi.fn(), saveSnapshot: vi.fn(), listSnapshots: vi.fn(), loadSnapshot: async () => ({ ok: true, value: project(5) }), deleteSnapshot: vi.fn() }, { saveProject });
     const document = { displayName: "current.pindou", writable: true };
-    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, isDirty: true, lastSavedAt: "before" });
+    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, isDirty: true, saveStatus: { kind: "saved", at: "2026-08-20T00:00:01.000Z" } });
 
     const pendingSave = useEditorStore.getState().saveProject();
     await useEditorStore.getState().restoreSnapshot("snapshot");
     resolveSave({ ok: true, value: { displayName: "stale.pindou", writable: true } });
     await pendingSave;
 
-    expect(useEditorStore.getState()).toMatchObject({ projectPath: null, projectDocument: null, lastSavedAt: null, isDirty: true, canvasData: [[{ colorIndex: 5 }]] });
+    expect(useEditorStore.getState()).toMatchObject({ projectPath: null, projectDocument: null, saveStatus: null, isDirty: true, canvasData: [[{ colorIndex: 5 }]] });
   });
 
   it("exports a snapshot without changing current project state", async () => {
     const exportProject = vi.fn(async () => ({ ok: true as const, value: undefined })); const document = { displayName: "current.pindou", writable: true };
     install({ availability: "available", saveAutosave: vi.fn(), loadAutosave: vi.fn(), saveSnapshot: vi.fn(), listSnapshots: vi.fn(), loadSnapshot: async () => ({ ok: true, value: project(6) }), deleteSnapshot: vi.fn() }, { exportProject });
-    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, isDirty: true, baselineCanvasData: [[{ colorIndex: 3 }]], lastSavedAt: "saved" }); const before = useEditorStore.getState();
+    useEditorStore.setState({ projectDocument: document, projectPath: document.displayName, isDirty: true, baselineCanvasData: [[{ colorIndex: 3 }]], saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" } }); const before = useEditorStore.getState();
     await useEditorStore.getState().exportSnapshot("id", "my:snapshot");
     expect(exportProject).toHaveBeenCalledWith(expect.objectContaining({ canvasData: [[{ colorIndex: 6 }]] }), "my_snapshot.pindou");
-    expect(useEditorStore.getState()).toMatchObject({ projectDocument: document, projectPath: before.projectPath, isDirty: true, baselineCanvasData: before.baselineCanvasData, lastSavedAt: "saved" });
+    expect(useEditorStore.getState()).toMatchObject({ projectDocument: document, projectPath: before.projectPath, isDirty: true, baselineCanvasData: before.baselineCanvasData, saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" } });
   });
 });

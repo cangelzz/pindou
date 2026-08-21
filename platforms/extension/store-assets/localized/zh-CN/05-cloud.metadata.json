@@ -1,0 +1,34 @@
+{
+  "image": "05-cloud.png",
+  "locale": "zh-CN",
+  "scenario": "cloud",
+  "sample": "dinosaur-rex.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "fe36262d62e5db56275c5f167e84e6dc9ba3ccb877fe6fe2d48cb5ae5940930e",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 222,
+      "y": 92.328125,
+      "width": 552,
+      "height": 616
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 8,
+      "offsetX": 174,
+      "offsetY": 17
+    }
+  }
+}

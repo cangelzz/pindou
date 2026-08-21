@@ -59,6 +59,18 @@ test("unpacked extension persists and restores GitHub session in chrome.storage.
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/index.html`);
     const menu = page.getByTestId("top-menu");
+    const language = menu.locator('[data-menu-id="language"]');
+    await expect(language).toHaveText("🌐 中文");
+    await language.click();
+    await expect(language).toHaveText("🌐 EN");
+    await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+    expect(await page.evaluate(async () => (await chrome.storage.local.get("pindou.uiLanguage"))["pindou.uiLanguage"])).toBe("zh-CN");
+    expect(await page.evaluate(() => localStorage.getItem("pindou.uiLanguage"))).toBeNull();
+    await page.reload();
+    await expect(menu.locator('[data-menu-id="language"]')).toHaveText("🌐 EN");
+    await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+    expect(await page.evaluate(async () => (await chrome.storage.local.get("pindou.uiLanguage"))["pindou.uiLanguage"])).toBe("zh-CN");
+    expect(await page.evaluate(() => localStorage.getItem("pindou.uiLanguage"))).toBeNull();
     await expect(menu.locator('[data-menu-id="login"]')).toBeEnabled();
     await menu.locator('[data-menu-id="login"]').click();
     await expect(page.getByText("USER-CODE")).toBeVisible();

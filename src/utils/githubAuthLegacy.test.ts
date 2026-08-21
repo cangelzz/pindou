@@ -37,6 +37,33 @@ describe("legacy GitHub polling cancellation", () => {
     expect(requestTimes).toEqual([5_000, 15_000, 30_000]);
   });
 
+  it.each([
+    ["authorization_pending", "authorization-pending"], ["slow_down", "slow-down"],
+    ["access_denied", "denied"], ["expired_token", "expired"],
+  ] as const)("reports structured %s status", async (error, expected) => {
+    vi.setSystemTime(0);
+    invoke.mockResolvedValue({ access_token: null, error });
+    const status = vi.fn();
+    const polling = pollForToken("device", 5, 60, status);
+    await vi.advanceTimersByTimeAsync(5_000);
+    if (error === "authorization_pending" || error === "slow_down") {
+      expect(status).toHaveBeenCalledWith(expected);
+      vi.setSystemTime(61_000);
+      await vi.runAllTimersAsync();
+    }
+    await expect(polling).resolves.toBe(false);
+    expect(status).toHaveBeenCalledWith(expected);
+  });
+
+  it("reports retrying after a network error", async () => {
+    vi.setSystemTime(0); invoke.mockRejectedValueOnce(new Error("offline"));
+    const status = vi.fn(); const polling = pollForToken("device", 5, 6, status);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(status).toHaveBeenCalledWith("retrying");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(polling).resolves.toBe(false);
+  });
+
   it("does not request again after the deadline", async () => {
     vi.setSystemTime(0);
     invoke.mockResolvedValue({ access_token: null, error: "authorization_pending" });

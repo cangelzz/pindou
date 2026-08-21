@@ -13,3 +13,14 @@ TESTING.md
 scripts/render-export-preview.mjs
 scripts/render-layer-indicator-preview.mjs
 !dist/**
+../../**
+!../../src/**
+../../src/**/*.test.ts
+../../src/**/*.test.tsx
+../../src-tauri/**
+../../platforms/**
+../../scripts/**
+../../samples/**
+../../docs/**
+../../test-results/**
+../../node_modules/**

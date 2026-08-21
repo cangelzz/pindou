@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 type Kind = "prompt" | "alert" | "confirm";
 
@@ -65,6 +66,7 @@ export function appConfirm(
 }
 
 export function DialogHost() {
+  const { t } = useTranslation();
   const [, force] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState("");
@@ -123,10 +125,10 @@ export function DialogHost() {
   const titleText =
     current.title ??
     (current.kind === "prompt"
-      ? "输入"
+      ? t("dialogs.promptTitle")
       : current.kind === "confirm"
-        ? "确认"
-        : "提示");
+        ? t("dialogs.confirm")
+        : t("dialogs.alertTitle"));
 
   return (
     <div
@@ -157,7 +159,7 @@ export function DialogHost() {
               onClick={onCancel}
               className="px-3 py-1 rounded border text-sm hover:bg-gray-100"
             >
-              取消
+              {t("dialogs.cancel")}
             </button>
           )}
           <button
@@ -165,7 +167,7 @@ export function DialogHost() {
             autoFocus={current.kind !== "prompt"}
             className="px-3 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
           >
-            确定
+            {t("dialogs.ok")}
           </button>
         </div>
       </div>

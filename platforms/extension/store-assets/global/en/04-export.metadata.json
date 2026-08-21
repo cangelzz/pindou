@@ -1,0 +1,34 @@
+{
+  "image": "04-export.png",
+  "locale": "en",
+  "scenario": "export",
+  "sample": "dinosaur-brachiosaurus.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "8b09148bbd86e0c486cd3aa57562a5ddaa053820791fd545e03ecc2b57fc379f",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 186,
+      "y": 88.328125,
+      "width": 624,
+      "height": 624
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 8,
+      "offsetX": 138,
+      "offsetY": 13
+    }
+  }
+}

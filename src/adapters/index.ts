@@ -1,4 +1,5 @@
 import type { ProjectFile } from "../types";
+import type { BlueprintImportStage } from "../utils/blueprintImportTS";
 
 // ─── Shared types for adapter I/O ────────────────────────────────
 
@@ -36,6 +37,11 @@ export interface WatermarkPayload {
   watermark_lines: string[];
 }
 
+export interface BlueprintExportLabels {
+  legendByCount: string;
+  legendByCode: string;
+}
+
 export interface ExportImageRequest {
   width: number;
   height: number;
@@ -49,6 +55,8 @@ export interface ExportImageRequest {
   watermark?: WatermarkPayload;
   /** Legend section toggles. Missing → defaults (by-count only). */
   legend_options?: LegendOptions;
+  /** UI labels captured when the export action is queued. */
+  labels: BlueprintExportLabels;
 }
 
 export interface LegendOptions {
@@ -180,7 +188,7 @@ export interface PlatformAdapter {
     gridHeight?: number,
     mode?: ImportMode,
     bbox?: { left: number; top: number; right: number; bottom: number },
-    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+    opts?: { onProgress?: (stage: BlueprintImportStage, fraction: number) => void; signal?: AbortSignal },
   ): Promise<BlueprintImportResult>;
   /**
    * Fast pre-detection of grid dimensions for the import dialog. Skips full
@@ -195,7 +203,7 @@ export interface PlatformAdapter {
   detectBlueprintDims(
     path: string,
     bbox?: { left: number; top: number; right: number; bottom: number },
-    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+    opts?: { onProgress?: (stage: BlueprintImportStage, fraction: number) => void; signal?: AbortSignal },
   ): Promise<{
     width: number;
     height: number;

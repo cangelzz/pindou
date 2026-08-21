@@ -84,7 +84,11 @@ export function registerImageTaskHandlers(
   });
   api.runtime.onInstalled.addListener(() => {
     void api.contextMenus.remove(MENU_ID).catch(() => undefined).then(() => {
-      api.contextMenus.create({ id: MENU_ID, title: "在 PindouVerse 中转换", contexts: ["image"] });
+      api.contextMenus.create({
+        id: MENU_ID,
+        title: api.i18n?.getMessage?.("contextMenuConvertImage") || "Convert with PindouVerse",
+        contexts: ["image"],
+      });
     });
   });
   api.contextMenus.onClicked.addListener((info) => {

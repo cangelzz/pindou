@@ -4,5 +4,8 @@
   },
   "extensionShortName": {
     "message": "PindouVerse"
+  },
+  "contextMenuConvertImage": {
+    "message": "Convert with PindouVerse"
   }
 }

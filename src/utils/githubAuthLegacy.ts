@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { DeviceFlowStatus } from "../platform/services";
 import { setGitHubToken } from "./githubToken";
 export { clearGitHubToken, getGitHubToken, setGitHubToken } from "./githubToken";
 
@@ -10,7 +11,7 @@ export async function requestDeviceCode(): Promise<DeviceCodeInfo> {
   return invoke<DeviceCodeInfo>("github_request_device_code");
 }
 
-export async function pollForToken(deviceCode: string, interval: number, expiresIn: number, onStatus?: (status: string) => void, signal?: AbortSignal): Promise<boolean> {
+export async function pollForToken(deviceCode: string, interval: number, expiresIn: number, onStatus?: (status: DeviceFlowStatus) => void, signal?: AbortSignal): Promise<boolean> {
   const deadline = Date.now() + expiresIn * 1000;
   let currentInterval = Math.max(interval, 5) * 1000;
   while (!signal?.aborted) {
@@ -21,16 +22,17 @@ export async function pollForToken(deviceCode: string, interval: number, expires
     try {
       const data = await invoke<{ access_token: string | null; error: string | null }>("github_poll_token", { deviceCode });
       if (signal?.aborted || Date.now() >= deadline) return false;
-      if (data.access_token) { setGitHubToken(data.access_token); onStatus?.("授权成功！"); return true; }
-      if (data.error === "authorization_pending") { onStatus?.("等待授权..."); continue; }
-      if (data.error === "slow_down") { currentInterval += 5000; continue; }
-      if (data.error === "expired_token" || data.error === "access_denied") { onStatus?.(data.error === "expired_token" ? "验证码已过期" : "授权被拒绝"); return false; }
-      onStatus?.(`错误: ${data.error}`); return false;
+      if (data.access_token) { setGitHubToken(data.access_token); onStatus?.("authorized"); return true; }
+      if (data.error === "authorization_pending") { onStatus?.("authorization-pending"); continue; }
+      if (data.error === "slow_down") { currentInterval += 5000; onStatus?.("slow-down"); continue; }
+      if (data.error === "expired_token") { onStatus?.("expired"); return false; }
+      if (data.error === "access_denied") { onStatus?.("denied"); return false; }
+      return false;
     } catch {
       if (signal?.aborted) return false;
-      onStatus?.("网络错误，重试中...");
+      onStatus?.("retrying");
     }
   }
-  if (!signal?.aborted) onStatus?.("验证码已过期");
+  if (!signal?.aborted) onStatus?.("expired");
   return false;
 }

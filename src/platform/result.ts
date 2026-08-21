@@ -6,6 +6,7 @@ export type PlatformErrorCode =
   | "authentication"
   | "rate-limited"
   | "conflict"
+  | "stale"
   | "unsupported"
   | "unknown";
 

@@ -81,19 +81,30 @@ describe("buildLegendItems", () => {
 });
 
 describe("computeLegendLayout", () => {
-  it("defaults: only the byCount section is rendered", () => {
+  it("uses explicit English labels by default", () => {
     const cells = singleColorGrid("M001", 42);
     const layout = computeLegendLayout(cells, 10, 30);
     expect(layout.sections).toHaveLength(1);
-    expect(layout.sections[0].title).toMatch(/^按数量/);
+    expect(layout.sections[0].title).toBe("By count (1 colors, 42 beads)");
+  });
+
+  it("uses a captured Chinese label bundle deterministically", () => {
+    const cells = singleColorGrid("M001", 42);
+    const labels = {
+      byCount: "按数量（{{colors}} 种颜色，{{beads}} 颗）",
+      byCode: "按色号（{{colors}} 种颜色）",
+    };
+    const layout = computeLegendLayout(cells, 10, 30, {}, undefined, labels);
+    labels.byCount = "mutated";
+    expect(layout.sections[0].title).toBe("按数量（1 种颜色，42 颗）");
   });
 
   it("includeByName: true → both byCount + byAlpha sections rendered", () => {
     const cells = singleColorGrid("M001", 42);
     const layout = computeLegendLayout(cells, 10, 30, { includeByName: true });
     expect(layout.sections).toHaveLength(2);
-    expect(layout.sections[0].title).toMatch(/^按数量/);
-    expect(layout.sections[1].title).toMatch(/^按代号/);
+    expect(layout.sections[0].title).toMatch(/^By count/);
+    expect(layout.sections[1].title).toMatch(/^By code/);
   });
 
   it("includeByCount: false + includeByName: false → no sections (totalHeight 0)", () => {

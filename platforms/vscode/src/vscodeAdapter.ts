@@ -51,14 +51,27 @@ declare function acquireVsCodeApi(): {
 
 const vscode = acquireVsCodeApi();
 let requestCounter = 0;
-const pendingRequests = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
+const pendingRequests = new Map<number, {
+  resolve: (val: any) => void;
+  reject: (err: any) => void;
+  timeout: ReturnType<typeof setTimeout> | null;
+}>();
+
+function requestTimeout(type: string, data: Record<string, any>): number | null {
+  if (type === "getGitHubToken" && data.createIfNone) return null;
+  if (type === "showOpenDialog" || type === "showSaveDialog") return null;
+  if (type === "readFile" || type === "writeFile" || type === "save" || type === "saveAs") return 120_000;
+  if (type === "listSnapshots" || type === "getAutosaveDir") return 30_000;
+  return 5_000;
+}
 
 // Listen for responses from extension host
 window.addEventListener("message", (event) => {
   const msg = event.data;
   if (msg.requestId !== undefined && pendingRequests.has(msg.requestId)) {
-    const { resolve, reject } = pendingRequests.get(msg.requestId)!;
+    const { resolve, reject, timeout } = pendingRequests.get(msg.requestId)!;
     pendingRequests.delete(msg.requestId);
+    if (timeout !== null) clearTimeout(timeout);
     if (msg.error) {
       reject(new Error(msg.error));
     } else {
@@ -67,13 +80,29 @@ window.addEventListener("message", (event) => {
   }
 });
 
-function sendRequest(type: string, data: Record<string, any> = {}): Promise<any> {
+export function sendRequest(
+  type: string,
+  data: Record<string, any> = {},
+  timeoutMs = requestTimeout(type, data),
+): Promise<any> {
   const requestId = ++requestCounter;
   return new Promise((resolve, reject) => {
-    pendingRequests.set(requestId, { resolve, reject });
+    const timeout = timeoutMs === null ? null : setTimeout(() => {
+      pendingRequests.delete(requestId);
+      reject(new Error(`VS Code request ${type} timed out`));
+    }, timeoutMs);
+    pendingRequests.set(requestId, { resolve, reject, timeout });
     vscode.postMessage({ type, requestId, ...data });
   });
 }
+
+window.addEventListener("unload", () => {
+  for (const { reject, timeout } of pendingRequests.values()) {
+    if (timeout !== null) clearTimeout(timeout);
+    reject(new Error("VS Code webview unloaded"));
+  }
+  pendingRequests.clear();
+}, { once: true });
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -251,10 +280,12 @@ export class VScodeAdapter implements PlatformAdapter {
         await this.writeProjectFile(path, project);
         return;
       }
-      await sendRequest("saveAs", { path, content });
+      const result = await sendRequest("saveAs", { path, content });
+      if (result.success === false) throw new Error(String(result.error || "saveAs failed"));
     } else {
+      const result = await sendRequest("save", { content });
+      if (result.success === false) throw new Error(String(result.error || "save failed"));
       lastSavedContent = content;
-      vscode.postMessage({ type: "save", content });
     }
   }
 
@@ -355,14 +386,14 @@ export class VScodeAdapter implements PlatformAdapter {
     const { output_path, ...renderRequest } = request;
     const icon = await loadAppIcon();
     const blob = await renderBlueprintBlob(renderRequest, { appIcon: icon });
-    await sendRequest("writeFile", { path: output_path, data: await blobToBase64(blob) });
+    await sendRequest("writeFile", { path: output_path, data: await blobToBase64(blob), operation: "export" });
   }
 
   async exportPreview(request: ExportPreviewRequest): Promise<void> {
     const { output_path, ...renderRequest } = request;
     const icon = await loadAppIcon();
     const blob = await renderPreviewBlob(renderRequest, { appIcon: icon });
-    await sendRequest("writeFile", { path: output_path, data: await blobToBase64(blob) });
+    await sendRequest("writeFile", { path: output_path, data: await blobToBase64(blob), operation: "export" });
   }
 
   async importBlueprint(

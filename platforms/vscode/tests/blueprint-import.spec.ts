@@ -244,6 +244,36 @@ test.describe("VS Code blueprint import (TS port)", () => {
     expect(accuracy).toBeGreaterThanOrEqual(0.99);
   });
 
+  test("real import API reports every stable stage in order", async ({ page }) => {
+    await setupPage(page, { savedLanguage: "en" });
+    const truth = loadTruth();
+    const { png } = synthFromTruth(truth, { gridWidth: 10, gridHeight: 8, cellSize: 20 });
+    await stageReply(page, "readFile", { data: png.toString("base64") });
+    const stages = await page.evaluate(async (paletteArg) => {
+      const seen: string[] = [];
+      await (window as any).__pindouAdapter.importBlueprint(
+        "/fake/synth.png", paletteArg, undefined, undefined, undefined, undefined,
+        { onProgress: (stage: string) => { if (seen.at(-1) !== stage) seen.push(stage); } },
+      );
+      return seen;
+    }, truth.palette);
+    expect(stages).toEqual(["loading-image", "detecting-grid", "sampling-colors", "matching-colors", "finalizing"]);
+  });
+
+  test("real blueprint import result is identical in English and Chinese", async ({ page }) => {
+    const truth = loadTruth();
+    const { png } = synthFromTruth(truth, { gridWidth: 10, gridHeight: 8, cellSize: 20 });
+    const run = async (language: "en" | "zh-CN") => {
+      await setupPage(page, { savedLanguage: language });
+      await stageReply(page, "readFile", { data: png.toString("base64") });
+      return page.evaluate(async (paletteArg) => {
+        const result = await (window as any).__pindouAdapter.importBlueprint("/fake/synth.png", paletteArg);
+        return { width: result.width, height: result.height, cells: result.cells, colors: result.color_cells };
+      }, truth.palette);
+    };
+    expect(await run("zh-CN")).toEqual(await run("en"));
+  });
+
   test("cancel during import either aborts or completes — never hangs", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);

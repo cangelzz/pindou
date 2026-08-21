@@ -5,13 +5,22 @@ export interface NewProjectCommandPanel {
 }
 
 export interface NewProjectCommandDependencies {
+  language?: string;
   getActivePanel(): NewProjectCommandPanel | undefined;
   clearActivePanel(panel: NewProjectCommandPanel): void;
   createUntitled(): Promise<void>;
   showSendError(message: string): void;
 }
 
-const SEND_ERROR = "无法向当前 PindouVerse 编辑器发送新建请求，请重试";
+export function hostText(language: string | undefined, key: "sendNewProjectError"): string {
+  const zh = language?.toLowerCase().startsWith("zh");
+  const resources = {
+    sendNewProjectError: zh
+      ? "无法向当前 PindouVerse 编辑器发送新建请求，请重试"
+      : "Could not send the new-project request to the current PindouVerse editor. Please try again.",
+  };
+  return resources[key];
+}
 
 export async function dispatchNewProjectCommand(deps: NewProjectCommandDependencies): Promise<void> {
   const panel = deps.getActivePanel();
@@ -29,5 +38,5 @@ export async function dispatchNewProjectCommand(deps: NewProjectCommandDependenc
   }
 
   deps.clearActivePanel(panel);
-  deps.showSendError(SEND_ERROR);
+  deps.showSendError(hostText(deps.language, "sendNewProjectError"));
 }

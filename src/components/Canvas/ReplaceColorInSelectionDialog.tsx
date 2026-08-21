@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { MARD_COLORS, groupIndicesByLetter, getGroupIndices } from "../../data/mard221";
 import { getEffectiveHex, type ColorOverrideMap } from "../../utils/colorHelper";
 
@@ -89,6 +90,7 @@ export function ReplaceColorInSelectionDialog({
   onConfirm,
   onClose,
 }: Props) {
+  const { t } = useTranslation();
   const [rules, setRules] = useState<ReplaceRule[]>([]);
   const [picking, setPicking] = useState<{ ruleIndex: number; side: "from" | "to" } | null>(null);
 
@@ -141,12 +143,12 @@ export function ReplaceColorInSelectionDialog({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="bg-white rounded-lg shadow-xl w-[560px] max-w-[90vw] max-h-[80vh] flex flex-col">
-        <div className="px-4 py-3 border-b text-sm font-semibold">替换选区内颜色</div>
+        <div className="px-4 py-3 border-b text-sm font-semibold">{t("selection.replace.title")}</div>
 
         <div className="p-4 flex flex-col gap-3 overflow-y-auto">
           {rules.length === 0 && (
             <div className="text-xs text-gray-400 text-center py-4">
-              暂无替换规则。点下方「+ 添加替换规则」开始。
+              {t("selection.replace.empty")}
             </div>
           )}
 
@@ -156,7 +158,7 @@ export function ReplaceColorInSelectionDialog({
             return (
               <div key={i} className="flex flex-col gap-2 border border-gray-200 rounded p-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-gray-500 w-8 shrink-0">原色</span>
+                  <span className="text-[10px] text-gray-500 w-8 shrink-0">{t("selection.replace.source")}</span>
                   {rule.from !== null ? (
                     <CodeSwatch
                       index={rule.from}
@@ -172,11 +174,11 @@ export function ReplaceColorInSelectionDialog({
                       onClick={() =>
                         setPicking(isPickingFrom ? null : { ruleIndex: i, side: "from" })
                       }
-                      label="选"
+                      label={t("selection.replace.pick")}
                     />
                   )}
                   <span className="text-gray-400">→</span>
-                  <span className="text-[10px] text-gray-500 w-8 shrink-0">目标</span>
+                  <span className="text-[10px] text-gray-500 w-8 shrink-0">{t("selection.replace.target")}</span>
                   {rule.to !== null ? (
                     <CodeSwatch
                       index={rule.to}
@@ -192,14 +194,14 @@ export function ReplaceColorInSelectionDialog({
                       onClick={() =>
                         setPicking(isPickingTo ? null : { ruleIndex: i, side: "to" })
                       }
-                      label="选"
+                      label={t("selection.replace.pick")}
                     />
                   )}
                   <div className="flex-1" />
                   <button
                     onClick={() => removeRule(i)}
                     className="px-1.5 py-0.5 text-xs text-red-500 border border-red-300 rounded hover:bg-red-50"
-                    title="删除此规则"
+                    title={t("selection.replace.deleteRule")}
                   >
                     ×
                   </button>
@@ -212,11 +214,11 @@ export function ReplaceColorInSelectionDialog({
                     className="border border-blue-200 rounded p-2 bg-blue-50/40"
                   >
                     <div className="text-[10px] text-gray-500 mb-1">
-                      选区内颜色（{selectionColors.length}）
+                      {t("selection.replace.selectionColors", { count: selectionColors.length })}
                     </div>
                     {selectionColors.length === 0 ? (
                       <div className="text-[10px] text-gray-400 py-2 text-center">
-                        选区内没有任何颜色
+                        {t("selection.replace.noColors")}
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-1">
@@ -269,7 +271,7 @@ export function ReplaceColorInSelectionDialog({
             onClick={addRule}
             className="self-start px-3 py-1.5 text-xs border border-dashed border-blue-400 text-blue-600 rounded hover:bg-blue-50"
           >
-            + 添加替换规则
+            {t("selection.replace.addRule")}
           </button>
         </div>
 
@@ -278,7 +280,7 @@ export function ReplaceColorInSelectionDialog({
             onClick={onClose}
             className="px-3 py-1 rounded border text-sm hover:bg-gray-100"
           >
-            取消
+            {t("dialogs.cancel")}
           </button>
           <button
             onClick={() => {
@@ -292,7 +294,7 @@ export function ReplaceColorInSelectionDialog({
               canConfirm ? "bg-blue-500 hover:bg-blue-600" : "bg-blue-300 cursor-not-allowed"
             }`}
           >
-            执行替换{validRules.length > 0 ? ` (${validRules.length})` : ""}
+            {t("selection.replace.run", { count: validRules.length > 0 ? ` (${validRules.length})` : "" })}
           </button>
         </div>
       </div>

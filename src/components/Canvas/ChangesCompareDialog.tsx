@@ -1,4 +1,5 @@
 import { useRef, useEffect, useMemo, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
 import type { CanvasData, CanvasSize } from "../../types";
@@ -77,10 +78,14 @@ export function ChangesCompareDialog({
   onClose,
   baselineData: baselineDataProp,
   baselineSize: baselineSizeProp,
-  baselineLabel = "基准版本",
-  currentLabel = "当前版本",
-  title = "变更对比",
+  baselineLabel,
+  currentLabel,
+  title,
 }: ChangesCompareDialogProps) {
+  const { t } = useTranslation();
+  const resolvedBaselineLabel = baselineLabel ?? t("compare.baseline");
+  const resolvedCurrentLabel = currentLabel ?? t("compare.current");
+  const resolvedTitle = title ?? t("compare.title");
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
   const storeBaselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
@@ -194,10 +199,10 @@ export function ChangesCompareDialog({
       <div className="bg-white rounded-lg shadow-xl relative" style={{ width: viewSize * 2 + 80 }}>
         <div className="px-4 py-3 border-b flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-sm">{title}</h2>
+            <h2 className="font-semibold text-sm">{resolvedTitle}</h2>
             {sizesDiffer && (
               <span className="text-[10px] text-gray-400">
-                尺寸 {baselineSize.width}×{baselineSize.height} → {canvasSize.width}×{canvasSize.height}
+                {t("compare.size", { before: `${baselineSize.width}×${baselineSize.height}`, after: `${canvasSize.width}×${canvasSize.height}` })}
               </span>
             )}
           </div>
@@ -212,35 +217,35 @@ export function ChangesCompareDialog({
               }}
               className="px-1.5 py-0.5 rounded border hover:bg-gray-100 text-[10px]"
             >
-              适应
+              {t("compare.fit")}
             </button>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
         </div>
         <div className="flex gap-4 p-4 justify-center">
           <div className="text-center">
-            <div className="text-[10px] text-gray-500 mb-1">{baselineLabel}</div>
+            <div className="text-[10px] text-gray-500 mb-1">{resolvedBaselineLabel}</div>
             <canvas ref={baselineRef} {...canvasProps} />
           </div>
           <div className="text-center">
-            <div className="text-[10px] text-gray-500 mb-1">{currentLabel}</div>
+            <div className="text-[10px] text-gray-500 mb-1">{resolvedCurrentLabel}</div>
             <canvas ref={currentRef} {...canvasProps} />
           </div>
         </div>
         <div className="px-4 pb-3 flex items-center justify-between">
           <div className="flex gap-3 text-xs">
             {total === 0 ? (
-              <span className="text-gray-400">无变更</span>
+              <span className="text-gray-400">{t("compare.none")}</span>
             ) : (
               <>
-                {stats.added > 0 && <span className="text-green-600">+{stats.added} 新增</span>}
-                {stats.removed > 0 && <span className="text-red-500">-{stats.removed} 删除</span>}
-                {stats.modified > 0 && <span className="text-orange-500">~{stats.modified} 修改</span>}
-                <span className="text-gray-400">共 {total} 处变更</span>
+                {stats.added > 0 && <span className="text-green-600">{t("compare.added", { count: stats.added })}</span>}
+                {stats.removed > 0 && <span className="text-red-500">{t("compare.removed", { count: stats.removed })}</span>}
+                {stats.modified > 0 && <span className="text-orange-500">{t("compare.modified", { count: stats.modified })}</span>}
+                <span className="text-gray-400">{t("compare.total", { count: total })}</span>
               </>
             )}
           </div>
-          <button onClick={onClose} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">关闭</button>
+          <button onClick={onClose} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">{t("dialogs.close")}</button>
         </div>
         <div
           onMouseDown={handleResizeStart}

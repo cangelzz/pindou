@@ -24,9 +24,9 @@ describe("editor cloud semantics", () => {
   });
 
   it("tracks cloud sync separately from local file dirty state", () => {
-    useEditorStore.setState({ isDirty: true, projectPath: "local.pindou", lastSavedAt: "saved" });
+    useEditorStore.setState({ isDirty: true, projectPath: "local.pindou", saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" } });
     useEditorStore.getState().setCloudSync("g", "remote", "Cloud");
-    expect(useEditorStore.getState()).toMatchObject({ isDirty: true, projectPath: "local.pindou", lastSavedAt: "saved", cloudSyncStatus: "synced" });
+    expect(useEditorStore.getState()).toMatchObject({ isDirty: true, projectPath: "local.pindou", saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" }, cloudSyncStatus: "synced" });
     useEditorStore.getState().setCell(0, 0, 4);
     expect(useEditorStore.getState().cloudSyncStatus).toBe("local-changes");
   });

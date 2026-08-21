@@ -22,7 +22,7 @@ async function dirtyLoadedProject(page: Page): Promise<void> {
     cloudGistId: "gist-original",
     cloudUpdatedAt: "2026-08-18T10:00:00Z",
     cloudProjectName: "云端项目",
-    lastSavedAt: "10:00:00",
+    saveStatus: { kind: "saved", at: "10:00:00" },
   });
 }
 
@@ -42,7 +42,7 @@ async function stateSnapshot(page: Page): Promise<Record<string, unknown>> {
       cloudUpdatedAt: s.cloudUpdatedAt,
       cloudProjectName: s.cloudProjectName,
       baselineCanvasData: s.baselineCanvasData,
-      lastSavedAt: s.lastSavedAt,
+      saveStatus: s.saveStatus,
       isDirty: s.isDirty,
     };
   });
@@ -52,7 +52,7 @@ test.describe("New project dirty-state contract", () => {
   test.afterAll(() => cleanupHarness());
 
   test("dirty project cancellation preserves the complete project state", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
     const before = await stateSnapshot(page);
 
@@ -65,7 +65,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("dirty confirmation followed by size-dialog cancellation preserves state", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
     const before = await stateSnapshot(page);
 
@@ -78,7 +78,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("clean project opens the size dialog without an extra warning", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await loadProject(page);
     expect(await getStoreState(page, "isDirty")).toBe(false);
 
@@ -89,7 +89,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("VS Code host request receives dimensions and leaves current document untouched", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
     const before = await stateSnapshot(page);
     await clearMessages(page);
@@ -108,7 +108,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("a clean request that becomes dirty must warn before creation", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await loadProject(page);
     await page.evaluate(() => { delete (window as any).__pindouRequestNewProject; });
 
@@ -123,7 +123,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("non-host creation after dirty confirmation replaces the project and clears identity", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
     await page.evaluate(() => { delete (window as any).__pindouRequestNewProject; });
 
@@ -139,12 +139,12 @@ test.describe("New project dirty-state contract", () => {
     expect(await getStoreState(page, "projectDocument")).toBeNull();
     expect(await getStoreState(page, "cloudGistId")).toBeNull();
     expect(await getStoreState(page, "baselineCanvasData")).toBeNull();
-    expect(await getStoreState(page, "lastSavedAt")).toBeNull();
+    expect(await getStoreState(page, "saveStatus")).toBeNull();
     expect(await getStoreState(page, "isDirty")).toBe(false);
   });
 
   test("stale dirty confirmation cannot act after another document is opened", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
     await clickNew(page);
     await expect(page.getByText(/未保存.*丢失/)).toBeVisible();
@@ -160,7 +160,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("restoreSnapshot makes an open size dialog stale", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await loadProject(page);
     await clickNew(page);
     await expect(page.getByRole("heading", { name: "新建画布" })).toBeVisible();
@@ -182,7 +182,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("host requestNewProject message uses the same dirty guard", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
 
     await page.evaluate(() => window.dispatchEvent(new MessageEvent("message", { data: { type: "requestNewProject" } })));
@@ -192,7 +192,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("host requestNewProject message opens dimensions directly when clean", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await loadProject(page);
 
     await page.evaluate(() => window.dispatchEvent(new MessageEvent("message", { data: { type: "requestNewProject" } })));
@@ -202,7 +202,7 @@ test.describe("New project dirty-state contract", () => {
   });
 
   test("newCanvas resets content, identity, cloud, save and transient state", async ({ page }) => {
-    await setupPage(page);
+    await setupPage(page, { savedLanguage: "zh-CN" });
     await dirtyLoadedProject(page);
     await setStoreState(page, {
       importedFileName: "old.png",
@@ -230,7 +230,7 @@ test.describe("New project dirty-state contract", () => {
         cloudUpdatedAt: s.cloudUpdatedAt,
         cloudProjectName: s.cloudProjectName,
         baselineCanvasData: s.baselineCanvasData,
-        lastSavedAt: s.lastSavedAt,
+        saveStatus: s.saveStatus,
         lastAutosaveErrorCode: s.lastAutosaveErrorCode,
         selection: s.selection,
         clipboard: s.clipboard,
@@ -257,7 +257,7 @@ test.describe("New project dirty-state contract", () => {
       cloudUpdatedAt: null,
       cloudProjectName: null,
       baselineCanvasData: null,
-      lastSavedAt: null,
+      saveStatus: null,
       lastAutosaveErrorCode: null,
       selection: null,
       clipboard: null,

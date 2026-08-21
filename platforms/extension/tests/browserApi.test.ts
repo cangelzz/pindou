@@ -59,6 +59,7 @@ describe("createBrowserApi", () => {
     };
     const contextMenus = { marker: "menus", create: vi.fn(function(this: { marker: string }) { expect(this.marker).toBe("menus"); }), remove: vi.fn(function(this: { marker: string }) { expect(this.marker).toBe("menus"); return Promise.resolve(); }), onClicked };
     const local = { marker: "storage", get: vi.fn(function(this: { marker: string }) { expect(this.marker).toBe("storage"); return Promise.resolve({}); }), set: vi.fn(function(this: { marker: string }) { expect(this.marker).toBe("storage"); return Promise.resolve(); }), remove: vi.fn(function(this: { marker: string }) { expect(this.marker).toBe("storage"); return Promise.resolve(); }) };
+    const i18n = { marker: "i18n", getUILanguage: vi.fn(function(this: { marker: string }) { expect(this.marker).toBe("i18n"); return "zh-CN"; }) };
     const api = createBrowserApi({
       runtime,
       tabs,
@@ -66,6 +67,7 @@ describe("createBrowserApi", () => {
       action: { onClicked },
       contextMenus,
       storage: { local },
+      i18n,
     } as ChromeApiLike);
     const handler = vi.fn();
 
@@ -84,6 +86,7 @@ describe("createBrowserApi", () => {
     await api.storage.local.get("x");
     await api.storage.local.set({ x: 1 });
     await api.storage.local.remove("x");
+    expect(api.i18n.getUILanguage()).toBe("zh-CN");
     api.action.onClicked.addListener(handler);
 
     expect(tabs.get).toHaveBeenCalledWith(1);

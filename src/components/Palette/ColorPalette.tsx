@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { MARD_COLORS, COLOR_GROUPS, getGroupIndices, groupIndicesByLetter, isTransparentBead, TRANSPARENT_BEAD_INDEX } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
@@ -34,6 +35,7 @@ function TransparentBeadOverlay() {
 }
 
 export function ColorPalette() {
+  const { t } = useTranslation();
   const selectedColorIndex = useEditorStore((s) => s.selectedColorIndex);
   const setSelectedColor = useEditorStore((s) => s.setSelectedColor);
   const setTool = useEditorStore((s) => s.setTool);
@@ -134,7 +136,7 @@ export function ColorPalette() {
     <div className="flex flex-col h-full select-none">
       <div className="px-2 py-1.5 border-b bg-gray-50">
         <div className="flex items-center gap-1 mb-1">
-          <h3 className="text-xs font-semibold text-gray-600">色板</h3>
+          <h3 className="text-xs font-semibold text-gray-600">{t("palette.title")}</h3>
           <span className="text-[10px] text-gray-400">({totalCount})</span>
         </div>
         <div className="flex items-center gap-1 mb-1">
@@ -144,43 +146,43 @@ export function ColorPalette() {
             className="flex-1 px-1 py-0.5 text-xs border rounded"
           >
             {COLOR_GROUPS.map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
+              <option key={g.id} value={g.id}>{t(`palette.groups.${g.id}`)}</option>
             ))}
             {customColorGroups.length > 0 && (
-              <option disabled>──── 自定义 ────</option>
+              <option disabled>──── {t("palette.customDivider")} ────</option>
             )}
             {customColorGroups.map((g) => (
               <option key={g.id} value={g.id}>{g.name} ({g.colorIndices.length})</option>
             ))}
             {colorOverrides.size > 0 && (
               <>
-                <option disabled>──── 调整 ────</option>
-                <option value="__overrides__">已调整颜色 ({colorOverrides.size})</option>
+                <option disabled>──── {t("palette.adjustedDivider")} ────</option>
+                <option value="__overrides__">{t("palette.adjustedColors", { count: colorOverrides.size })}</option>
               </>
             )}
           </select>
           <button
             onClick={async () => {
-              const name = await appPrompt("输入自定义色组名称：", "我的色组", { title: "新建自定义色组" });
+              const name = await appPrompt(t("palette.groupNamePrompt"), t("palette.defaultGroupName"), { title: t("palette.newGroup") });
               if (name) {
                 addCustomColorGroup(name);
               }
             }}
             className="w-6 h-6 flex items-center justify-center rounded border hover:bg-gray-100 text-xs shrink-0"
-            title="新建自定义色组"
+            title={t("palette.newGroup")}
           >
             +
           </button>
           {isOverridesGroup && (
             <button
               onClick={async () => {
-                if (await appConfirm("确定还原所有已调整的颜色？", { title: "还原颜色" })) {
+                if (await appConfirm(t("palette.restoreAll"), { title: t("palette.restoreColor") })) {
                   clearColorOverrides();
                   setGroupId("mard221");
                 }
               }}
               className="w-6 h-6 flex items-center justify-center rounded border hover:bg-red-100 text-red-500 text-xs shrink-0"
-              title="还原所有调整"
+              title={t("palette.restoreAll")}
             >
               ↩
             </button>
@@ -188,13 +190,13 @@ export function ColorPalette() {
           {isCustomGroup && (
             <button
               onClick={async () => {
-                if (await appConfirm(`确定删除色组「${currentCustomGroup?.name}」？`, { title: "删除色组" })) {
+                if (await appConfirm(t("palette.deleteGroupConfirm", { name: currentCustomGroup?.name }), { title: t("palette.deleteGroup") })) {
                   removeCustomColorGroup(groupId);
                   setGroupId("mard221");
                 }
               }}
               className="w-6 h-6 flex items-center justify-center rounded border hover:bg-red-100 text-red-500 text-xs shrink-0"
-              title="删除当前自定义色组"
+              title={t("palette.deleteGroup")}
             >
               ×
             </button>
@@ -209,7 +211,7 @@ export function ColorPalette() {
                 reorderCustomGroupColors(groupId, sorted);
               }}
               className="w-6 h-6 flex items-center justify-center rounded border hover:bg-gray-100 text-xs shrink-0"
-              title="按使用频率排序（最多的在前）"
+              title={t("palette.sortFrequency")}
             >
               ↕
             </button>
@@ -217,7 +219,7 @@ export function ColorPalette() {
         </div>
         <input
           type="text"
-          placeholder="搜索色号/名称..."
+          placeholder={t("palette.search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -282,7 +284,7 @@ export function ColorPalette() {
                       fontWeight: 600,
                       lineHeight: 1,
                     }}
-                    title={`${color.code}\n${getEffectiveHex(index, colorOverrides)}\nRGB(${color.rgb?.join(", ")})${colorOverrides.has(index) ? "\n(已调整)" : ""}`}
+                    title={`${color.code}\n${getEffectiveHex(index, colorOverrides)}\nRGB(${color.rgb?.join(", ")})${colorOverrides.has(index) ? `\n${t("palette.adjusted")}` : ""}`}
                   >
                     {color.code}
                     {isTransparentBead(index) && <TransparentBeadOverlay />}
@@ -311,7 +313,7 @@ export function ColorPalette() {
               <div className="font-semibold">{MARD_COLORS[selectedColorIndex]?.code}</div>
               <div className="text-gray-400 truncate">{getEffectiveHex(selectedColorIndex, colorOverrides)}</div>
             </div>
-            <span className="text-gray-500 shrink-0">{selectedCount} 颗</span>
+            <span className="text-gray-500 shrink-0">{t("palette.beads", { count: selectedCount })}</span>
           </div>
           <div className="flex gap-1 mt-1.5">
             <button
@@ -328,7 +330,7 @@ export function ColorPalette() {
                   : "hover:bg-gray-100 border-gray-300"
               }`}
             >
-              {highlightColorIndex === selectedColorIndex ? "取消高亮" : "高亮"}
+              {t(highlightColorIndex === selectedColorIndex ? "palette.clearHighlight" : "palette.highlight")}
             </button>
             <button
               onClick={() => { setShowReplace(!showReplace); setReplaceTargetIndex(null); if (showReplace) setHighlightColor(null); }}
@@ -338,7 +340,7 @@ export function ColorPalette() {
                   : "hover:bg-gray-100 border-gray-300"
               }`}
             >
-              替换颜色
+              {t("palette.replaceColor")}
             </button>
           </div>
 
@@ -346,7 +348,7 @@ export function ColorPalette() {
           {showReplace && (
             <div className="mt-1.5 border rounded p-1.5 bg-white">
               <p className="text-[10px] text-gray-500 mb-1">
-                将画布中所有 {MARD_COLORS[selectedColorIndex]?.code} ({selectedCount} 颗) ��换为:
+                {t("palette.replacePrompt", { code: MARD_COLORS[selectedColorIndex]?.code, count: selectedCount })}
               </p>
               <div className="flex flex-col gap-0.5 max-h-32 overflow-y-auto">
                 {groupIndicesByLetter(MARD_COLORS.map((_, i) => i)).map(({ letter, indices }) => (
@@ -390,9 +392,9 @@ export function ColorPalette() {
                       <div className="w-6 h-6 rounded border" style={{ backgroundColor: getEffectiveHex(replaceTargetIndex, colorOverrides) }} />
                       <span className="text-[10px] font-medium">{MARD_COLORS[replaceTargetIndex]?.code}</span>
                     </div>
-                    <span className="text-[10px] text-gray-400 ml-auto">{selectedCount} 颗</span>
+                    <span className="text-[10px] text-gray-400 ml-auto">{t("palette.beads", { count: selectedCount })}</span>
                   </div>
-                  <p className="text-[9px] text-gray-400 mb-1">画布中已高亮显示将被替换的格子</p>
+                  <p className="text-[9px] text-gray-400 mb-1">{t("palette.replacementHighlight")}</p>
                   <div className="flex gap-1">
                     <button
                       onClick={() => {
@@ -403,7 +405,7 @@ export function ColorPalette() {
                       }}
                       className="flex-1 px-2 py-1 bg-blue-500 text-white text-[10px] rounded hover:bg-blue-600"
                     >
-                      确认替换
+                      {t("palette.replace.confirm")}
                     </button>
                     <button
                       onClick={() => {
@@ -412,7 +414,7 @@ export function ColorPalette() {
                       }}
                       className="px-2 py-1 text-[10px] rounded border hover:bg-gray-100"
                     >
-                      取消
+                      {t("palette.replace.cancel")}
                     </button>
                   </div>
                 </div>
@@ -440,7 +442,7 @@ export function ColorPalette() {
                 setContextMenu(null);
               }}
             >
-              🎨 调整颜色
+              🎨 {t("palette.adjustColor")}
             </button>
             {colorOverrides.has(contextMenu.colorIndex) && (
               <button
@@ -450,7 +452,7 @@ export function ColorPalette() {
                   setContextMenu(null);
                 }}
               >
-                ↩ 还原颜色
+                ↩ {t("palette.restoreColor")}
               </button>
             )}
             {isCustomGroup && currentCustomGroup && (
@@ -461,7 +463,7 @@ export function ColorPalette() {
                   setContextMenu(null);
                 }}
               >
-                ✕ 从色组移除
+                ✕ {t("palette.removeFromGroup")}
               </button>
             )}
             {!isCustomGroup && customColorGroups.length === 1 && (
@@ -472,7 +474,7 @@ export function ColorPalette() {
                   setContextMenu(null);
                 }}
               >
-                ＋ 添加到 {customColorGroups[0].name}
+                ＋ {t("palette.addToGroup", { name: customColorGroups[0].name })}
               </button>
             )}
             {!isCustomGroup && customColorGroups.length > 1 && (
@@ -497,10 +499,10 @@ export function ColorPalette() {
       {editOverrideIndex !== null && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[280px] p-4">
-            <h3 className="text-sm font-semibold mb-3">调整颜色 — {MARD_COLORS[editOverrideIndex]?.code}</h3>
+            <h3 className="text-sm font-semibold mb-3">{t("palette.adjustColor")} — {MARD_COLORS[editOverrideIndex]?.code}</h3>
             <div className="flex items-center gap-3 mb-3">
               <div>
-                <div className="text-[10px] text-gray-400 mb-1">原始</div>
+                <div className="text-[10px] text-gray-400 mb-1">{t("palette.original")}</div>
                 <div
                   className="w-10 h-10 rounded border"
                   style={{ backgroundColor: MARD_COLORS[editOverrideIndex]?.hex }}
@@ -508,7 +510,7 @@ export function ColorPalette() {
               </div>
               <span className="text-gray-400">→</span>
               <div>
-                <div className="text-[10px] text-gray-400 mb-1">调整后</div>
+                <div className="text-[10px] text-gray-400 mb-1">{t("palette.adjusted")}</div>
                 <div
                   className="w-10 h-10 rounded border"
                   style={{ backgroundColor: editOverrideHex }}
@@ -539,14 +541,14 @@ export function ColorPalette() {
                   }}
                   className="px-3 py-1 text-xs text-red-500 border rounded hover:bg-red-50"
                 >
-                  还原
+                  {t("palette.restore")}
                 </button>
               )}
               <button
                 onClick={() => setEditOverrideIndex(null)}
                 className="px-3 py-1 text-xs border rounded hover:bg-gray-100"
               >
-                取消
+                {t("dialogs.cancel")}
               </button>
               <button
                 onClick={() => {
@@ -557,7 +559,7 @@ export function ColorPalette() {
                 }}
                 className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
               >
-                保存
+                {t("palette.save")}
               </button>
             </div>
           </div>

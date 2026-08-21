@@ -21,8 +21,27 @@ import { loadImageData, type LoadedImage } from "./imageLoader";
 
 // ─── Public API ─────────────────────────────────────────────────────
 
+export const BLUEPRINT_IMPORT_STAGES = [
+  "loading-image",
+  "detecting-grid",
+  "sampling-colors",
+  "matching-colors",
+  "finalizing",
+] as const;
+
+export type BlueprintImportStage = (typeof BLUEPRINT_IMPORT_STAGES)[number];
+export type BlueprintImportErrorCode = "grid-not-found" | "geometry-not-recovered" | "grid-too-small";
+
+export class BlueprintImportError extends Error {
+  constructor(readonly code: BlueprintImportErrorCode) { super(code); this.name = "BlueprintImportError"; }
+}
+
+export function blueprintImportErrorKey(error: unknown): `import.blueprint.errors.${BlueprintImportErrorCode | "unknown"}` {
+  return `import.blueprint.errors.${error instanceof BlueprintImportError ? error.code : "unknown"}`;
+}
+
 export interface ImportTsOpts {
-  onProgress?: (stage: string, fraction: number) => void;
+  onProgress?: (stage: BlueprintImportStage, fraction: number) => void;
   signal?: AbortSignal;
 }
 
@@ -180,24 +199,24 @@ async function detectGridBBox(
   opts?: ImportTsOpts,
 ): Promise<BBox | null> {
   const { data, width, height } = img;
-  opts?.onProgress?.("分析水平密度", 0);
+  opts?.onProgress?.("detecting-grid", 0);
 
   const rowDark: number[] = new Array(height);
   for (let y = 0; y < height; y++) {
     if (y % 64 === 0) {
       checkSignal(opts?.signal);
-      opts?.onProgress?.("分析水平密度", y / height);
+      opts?.onProgress?.("detecting-grid", y / height);
       await yieldToUi();
     }
     rowDark[y] = rowDarkCount(data, width, y, lumThreshold);
   }
 
-  opts?.onProgress?.("分析垂直密度", 0);
+  opts?.onProgress?.("detecting-grid", 0);
   const colDark: number[] = new Array(width);
   for (let x = 0; x < width; x++) {
     if (x % 64 === 0) {
       checkSignal(opts?.signal);
-      opts?.onProgress?.("分析垂直密度", x / width);
+      opts?.onProgress?.("detecting-grid", x / width);
       await yieldToUi();
     }
     colDark[x] = colDarkCount(data, width, height, x, lumThreshold);
@@ -422,12 +441,12 @@ async function recoverGridGeometry(
   if (bboxW < 20 || bboxH < 20) return null;
 
   // Per-axis signals (full image, but pixel sum is over bbox cross-axis)
-  opts?.onProgress?.("提取列信号", 0);
+  opts?.onProgress?.("detecting-grid", 0);
   const colSig = new Array<number>(imgW);
   for (let x = 0; x < imgW; x++) {
     if (x % 64 === 0) {
       checkSignal(opts?.signal);
-      opts?.onProgress?.("提取列信号", x / imgW);
+      opts?.onProgress?.("detecting-grid", x / imgW);
       await yieldToUi();
     }
     let dark = 0;
@@ -437,12 +456,12 @@ async function recoverGridGeometry(
     colSig[x] = dark;
   }
 
-  opts?.onProgress?.("提取行信号", 0);
+  opts?.onProgress?.("detecting-grid", 0);
   const rowSig = new Array<number>(imgH);
   for (let y = 0; y < imgH; y++) {
     if (y % 64 === 0) {
       checkSignal(opts?.signal);
-      opts?.onProgress?.("提取行信号", y / imgH);
+      opts?.onProgress?.("detecting-grid", y / imgH);
       await yieldToUi();
     }
     let dark = 0;
@@ -457,12 +476,12 @@ async function recoverGridGeometry(
   const maxLagX = Math.max(6, Math.min(AUTOCORR_MAX_LAG, Math.floor(bboxW / 4)));
   const maxLagY = Math.max(6, Math.min(AUTOCORR_MAX_LAG, Math.floor(bboxH / 4)));
 
-  opts?.onProgress?.("X 轴周期检测", 0);
+  opts?.onProgress?.("detecting-grid", 0);
   await yieldToUi();
   checkSignal(opts?.signal);
   const peakX = autocorrPeak(colSlice, AUTOCORR_MIN_LAG, maxLagX, config.autocorrStep2Accept, config.autocorrStep3Accept);
 
-  opts?.onProgress?.("Y 轴周期检测", 0);
+  opts?.onProgress?.("detecting-grid", 0);
   await yieldToUi();
   checkSignal(opts?.signal);
   const peakY = autocorrPeak(rowSlice, AUTOCORR_MIN_LAG, maxLagY, config.autocorrStep2Accept, config.autocorrStep3Accept);
@@ -673,9 +692,9 @@ export async function detectBlueprintDimsTS(
   bbox: BBox | undefined,
   opts?: ImportTsOpts,
 ): Promise<DetectTsResult> {
-  opts?.onProgress?.("加载图像", 0);
+  opts?.onProgress?.("loading-image", 0);
   const img = await loadImageData(path, adapter);
-  opts?.onProgress?.("加载图像", 1);
+  opts?.onProgress?.("loading-image", 1);
   checkSignal(opts?.signal);
 
   // Fast path: PNG metadata
@@ -700,7 +719,7 @@ export async function detectBlueprintDimsTS(
   const config = configForMediaType(img.mediaType);
   const actualBbox = bbox ?? (await detectGridBBox(img, config.gridLumThreshold, opts));
   if (!actualBbox) {
-    throw new Error("Could not locate a grid region. Is this a blueprint image?");
+    throw new BlueprintImportError("grid-not-found");
   }
   // Clamp user-supplied bbox to image bounds
   const clamped: BBox = {
@@ -712,7 +731,7 @@ export async function detectBlueprintDimsTS(
 
   const recovered = await recoverGridGeometry(img, clamped, config, opts);
   if (!recovered) {
-    throw new Error("Could not recover grid geometry from detected region");
+    throw new BlueprintImportError("geometry-not-recovered");
   }
 
   return {
@@ -729,12 +748,14 @@ export async function importBlueprintTS(
   adapter: ReadFileAdapter,
   opts?: ImportTsOpts,
 ): Promise<BlueprintImportResult> {
-  opts?.onProgress?.("加载图像", 0);
+  opts?.onProgress?.("loading-image", 0);
   const img = await loadImageData(args.path, adapter);
-  opts?.onProgress?.("加载图像", 1);
+  opts?.onProgress?.("loading-image", 1);
   checkSignal(opts?.signal);
 
   const userBbox = args.bbox;
+
+  opts?.onProgress?.("detecting-grid", 0);
 
   // Fast path: PNG metadata (only when neither bbox nor explicit dims provided)
   if (!userBbox && !args.gridWidth && !args.gridHeight && img.mediaType === "image/png") {
@@ -762,7 +783,7 @@ export async function importBlueprintTS(
   const config = configForMediaType(img.mediaType);
   const actualBbox = userBbox ?? (await detectGridBBox(img, config.gridLumThreshold, opts));
   if (!actualBbox) {
-    throw new Error("Could not locate a grid region. Is this a blueprint image?");
+    throw new BlueprintImportError("grid-not-found");
   }
   const clamped: BBox = {
     left: Math.max(0, Math.min(actualBbox.left, img.width - 1)),
@@ -773,13 +794,13 @@ export async function importBlueprintTS(
 
   const recovered = await recoverGridGeometry(img, clamped, config, opts);
   if (!recovered) {
-    throw new Error("Could not recover grid geometry from detected region");
+    throw new BlueprintImportError("geometry-not-recovered");
   }
 
   const gridW = args.gridWidth ?? recovered.width;
   const gridH = args.gridHeight ?? recovered.height;
   if (gridW === 0 || gridH === 0) {
-    throw new Error("Detected grid is too small");
+    throw new BlueprintImportError("grid-too-small");
   }
 
   // When user-supplied dims exceed what detection found, the missing cells
@@ -837,7 +858,7 @@ async function runSamplingPass(
   const { width: imgW, height: imgH } = img;
 
   // Color sampling
-  opts?.onProgress?.("采样颜色", 0);
+  opts?.onProgress?.("sampling-colors", 0);
   const colorCodes: string[][] = [];
   const colorConfs: number[][] = [];
   let totalConf = 0;
@@ -845,7 +866,7 @@ async function runSamplingPass(
   for (let row = 0; row < gridH; row++) {
     if (row % 8 === 0) {
       checkSignal(opts?.signal);
-      opts?.onProgress?.(`采样颜色 ${row}/${gridH}`, row / gridH);
+      opts?.onProgress?.("sampling-colors", row / gridH);
       await yieldToUi();
     }
     const codeRow: string[] = [];
@@ -876,12 +897,12 @@ async function runSamplingPass(
   // Text detection per cell (for white-vs-empty disambiguation). Uses the
   // same signed-offset scheme so padded cells line up with the color pass
   // — and cells that fall off the image always report has_text=false.
-  opts?.onProgress?.("识别空白格", 0);
+  opts?.onProgress?.("matching-colors", 0);
   const hasTextGrid: boolean[][] = [];
   for (let row = 0; row < gridH; row++) {
     if (row % 8 === 0) {
       checkSignal(opts?.signal);
-      opts?.onProgress?.(`识别空白格 ${row}/${gridH}`, row / gridH);
+      opts?.onProgress?.("matching-colors", row / gridH);
       await yieldToUi();
     }
     const r: boolean[] = [];
@@ -898,6 +919,8 @@ async function runSamplingPass(
     }
     hasTextGrid.push(r);
   }
+
+  opts?.onProgress?.("finalizing", 0);
 
   // Build result
   const cells: CellResult[][] = [];
@@ -943,6 +966,7 @@ async function runSamplingPass(
     textCellsOut.push(textRow);
   }
 
+  opts?.onProgress?.("finalizing", 1);
   return {
     width: gridW,
     height: gridH,

@@ -74,6 +74,58 @@ pub struct LegendOptions {
     pub include_by_name: Option<bool>,
 }
 
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BlueprintExportLabels {
+    pub legend_by_count: String,
+    pub legend_by_code: String,
+}
+
+impl Default for BlueprintExportLabels {
+    fn default() -> Self {
+        Self {
+            legend_by_count: "By count ({{colors}} colors, {{beads}} beads)".to_string(),
+            legend_by_code: "By code ({{colors}} colors)".to_string(),
+        }
+    }
+}
+
+fn format_legend_title(template: &str, colors: usize, beads: Option<u32>) -> String {
+    let mut title = template.replace("{{colors}}", &colors.to_string());
+    if let Some(beads) = beads {
+        title = title.replace("{{beads}}", &beads.to_string());
+    }
+    title
+}
+
+#[cfg(test)]
+mod i18n_tests {
+    use super::*;
+
+    #[test]
+    fn labels_deserialize_as_camel_case_and_format_exact_titles() {
+        let request: ExportRequest = serde_json::from_value(serde_json::json!({
+            "width": 1, "height": 1, "cell_size": 20, "cells": [[null]],
+            "output_path": "unused.png", "format": "png",
+            "labels": {
+                "legendByCount": "按数量（{{colors}} 种颜色，{{beads}} 颗）",
+                "legendByCode": "按色号（{{colors}} 种颜色）"
+            }
+        })).unwrap();
+        assert_eq!(format_legend_title(&request.labels.legend_by_count, 2, Some(9)), "按数量（2 种颜色，9 颗）");
+        assert_eq!(format_legend_title(&request.labels.legend_by_code, 2, None), "按色号（2 种颜色）");
+    }
+
+    #[test]
+    fn missing_labels_fall_back_to_english() {
+        let request: ExportRequest = serde_json::from_value(serde_json::json!({
+            "width": 1, "height": 1, "cell_size": 20, "cells": [[null]],
+            "output_path": "unused.png", "format": "png"
+        })).unwrap();
+        assert_eq!(format_legend_title(&request.labels.legend_by_count, 1, Some(3)), "By count (1 colors, 3 beads)");
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ExportRequest {
     pub width: u32,
@@ -87,6 +139,8 @@ pub struct ExportRequest {
     pub edge_padding: Option<u32>,
     pub watermark: Option<WatermarkPayload>,
     pub legend_options: Option<LegendOptions>,
+    #[serde(default)]
+    pub labels: BlueprintExportLabels,
 }
 
 fn luminance(r: u8, g: u8, b: u8) -> f64 {
@@ -495,13 +549,13 @@ pub fn export_image(request: ExportRequest) -> Result<String, String> {
     let mut legend_y = header_h + grid_area_h + legend_gap;
     if include_by_count {
         let total_beads: u32 = by_count.iter().map(|x| x.4).sum();
-        let title1 = format!("按数量 ({} 色, {} 颗)", by_count.len(), total_beads);
+        let title1 = format_legend_title(&request.labels.legend_by_count, by_count.len(), Some(total_beads));
         draw_legend_section(&mut img, &by_count_layout, by_count_rows, legend_y, &title1);
         legend_y += section_h(by_count_rows) + legend_gap;
     }
 
     if include_by_name {
-        let title2 = format!("按代号 ({} 色)", by_alpha.len());
+        let title2 = format_legend_title(&request.labels.legend_by_code, by_alpha.len(), None);
         draw_legend_section(&mut img, &by_alpha_layout, by_alpha_rows, legend_y, &title2);
     }
 

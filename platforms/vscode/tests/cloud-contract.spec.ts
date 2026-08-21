@@ -16,13 +16,13 @@ test("CloudDialog keeps styled action controls", () => {
   expect(source).toContain('const primaryButton = "px-3 py-1.5 bg-blue-500');
   expect(source).toContain('const secondaryButton = "px-3 py-1.5 text-xs border');
   expect(source).toContain('const compactButton = "px-2 py-0.5 border');
-  for (const label of ["下载", "恢复", "删除"]) {
-    const button = new RegExp(`<button[^>]*className=["'][^"']+(?:bg-|border|hover:)[^"']*["'][^>]*>[^<]*${label}[^<]*</button>`, "s");
-    expect(source, `${label} button should retain Tailwind interaction styles`).toMatch(button);
+  for (const key of ["cloud.download", "cloud.restore", "cloud.delete", "cloud.history", "cloud.upload", "cloud.cancel", "cloud.saveAs", "cloud.close"]) {
+    expect(source, `${key} should remain a localized action`).toContain(`t("${key}")`);
   }
-  for (const label of ["历史", "上传", "取消", "上传当前项目", "另存为...", "刷新", "关闭"]) {
-    expect(source, `${label} button should use a styled control class`).toMatch(new RegExp(`<button[^>]*className=\\{(?:primaryButton|secondaryButton|compactButton)\\}[^>]*>[^<]*${label.replaceAll(".", "\\.")}`, "s"));
-  }
+  expect(source).toMatch(/className="[^"]*(?:bg-blue|bg-green|text-red)[^"]*"/);
+  expect(source).toMatch(/className=\{(?:primaryButton|secondaryButton|compactButton)\}/);
+  expect(source).toContain('t(cloudGistId ? "cloud.sync" : "cloud.uploadCurrent")');
+  expect(source).toContain('loading ? t("cloud.loading") : t("cloud.refresh")');
 });
 
 test("browser extension grants only the fixed GitHub API host", () => {

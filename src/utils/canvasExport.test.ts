@@ -50,6 +50,10 @@ const request = {
   start_x: 3,
   start_y: 9,
   edge_padding: 0,
+  labels: {
+    legendByCount: "By count ({{colors}} colors, {{beads}} beads)",
+    legendByCode: "By code ({{colors}} colors)",
+  },
 };
 
 describe("renderBlueprintBlob", () => {
@@ -81,6 +85,20 @@ describe("renderBlueprintBlob", () => {
     const fills = h.calls.filter(([name]) => name === "fillRect");
     expect(fills.some(([, x, y, w]) => x === 20 && y === 0 && w === 20)).toBe(false);
     expect(h.calls.filter(([name]) => name === "lineTo").length).toBeGreaterThan(0);
+  });
+
+  it("renders labels captured in the request instead of current language state", async () => {
+    const h = harness();
+    const captured = {
+      legendByCount: "By count ({{colors}} colors, {{beads}} beads)",
+      legendByCode: "By code ({{colors}} colors)",
+    };
+    const queued = { ...request, labels: { ...captured } };
+    captured.legendByCount = "按数量（{{colors}} 种颜色，{{beads}} 颗）";
+    await renderBlueprintBlob(queued, undefined, h.dependencies);
+    const labels = h.calls.filter(([name]) => name === "fillText").map(([, text]) => text);
+    expect(labels).toContain("By count (2 colors, 2 beads)");
+    expect(labels.some((text) => String(text).includes("按数量"))).toBe(false);
   });
 
   it("computes legend wrapping using the full grid width between margins", async () => {

@@ -67,10 +67,9 @@ function playSequence(tones: ToneOptions[], gap = 0) {
 
 export type SoundPreset = "A" | "B" | "C" | "D" | "E" | "F";
 
-const PRESETS: Record<SoundPreset, { label: string; tones: ToneOptions[] }> = {
+const PRESETS: Record<SoundPreset, { tones: ToneOptions[] }> = {
   // A: 微信风格 — 短促上扬
   A: {
-    label: "微信",
     tones: [
       { frequency: 880, duration: 0.08, type: "sine", volume: 0.12, ramp: true },
       { frequency: 1100, duration: 0.12, type: "sine", volume: 0.1, ramp: true },
@@ -78,7 +77,6 @@ const PRESETS: Record<SoundPreset, { label: string; tones: ToneOptions[] }> = {
   },
   // B: iOS 风格 — 柔和三连音
   B: {
-    label: "iOS",
     tones: [
       { frequency: 784, duration: 0.06, type: "sine", volume: 0.1, ramp: true },
       { frequency: 988, duration: 0.06, type: "sine", volume: 0.08, ramp: true },
@@ -87,14 +85,12 @@ const PRESETS: Record<SoundPreset, { label: string; tones: ToneOptions[] }> = {
   },
   // C: 水滴 — 单音圆润
   C: {
-    label: "水滴",
     tones: [
       { frequency: 1047, duration: 0.15, type: "sine", volume: 0.1, ramp: true },
     ],
   },
   // D: 清脆 — triangle 波双音
   D: {
-    label: "清脆",
     tones: [
       { frequency: 659, duration: 0.05, type: "triangle", volume: 0.12, ramp: true },
       { frequency: 988, duration: 0.1, type: "triangle", volume: 0.1, ramp: true },
@@ -102,7 +98,6 @@ const PRESETS: Record<SoundPreset, { label: string; tones: ToneOptions[] }> = {
   },
   // E: 气泡 — 快速高音
   E: {
-    label: "气泡",
     tones: [
       { frequency: 1319, duration: 0.06, type: "sine", volume: 0.08, ramp: true },
       { frequency: 1568, duration: 0.08, type: "sine", volume: 0.06, ramp: true },
@@ -110,7 +105,6 @@ const PRESETS: Record<SoundPreset, { label: string; tones: ToneOptions[] }> = {
   },
   // F: 叮 — 经典单音
   F: {
-    label: "叮",
     tones: [
       { frequency: 1397, duration: 0.2, type: "sine", volume: 0.08, ramp: true },
     ],
@@ -125,10 +119,6 @@ export function setPreset(preset: SoundPreset) {
 
 export function getPreset(): SoundPreset {
   return currentPreset;
-}
-
-export function getPresetLabel(preset: SoundPreset): string {
-  return PRESETS[preset].label;
 }
 
 export function getAllPresets(): SoundPreset[] {
@@ -211,7 +201,7 @@ export function speak(text: string, lang = "zh-CN") {
 }
 
 /** Preview a specific voice */
-export function previewVoice(voice: SpeechSynthesisVoice, text = "上下左右") {
+export function previewVoice(voice: SpeechSynthesisVoice, text = "Up, down, left, right") {
   if (!("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);

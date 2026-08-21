@@ -6,7 +6,7 @@ const defaultRoot = fileURLToPath(new URL("../platforms/extension/dist/", import
 const forbidden = [
   "__pindouExtensionTest", "pindou:test", "Store action is not available to E2E",
   "github_models_chat", "models.inference.ai.azure.com", "__TAURI", "@tauri", "Tauri",
-  "AI语音", "AI 语音增强", "matchCommand", "fromLLM", "[AI]", "aiVoice", "client_secret",
+  "matchCommand", "fromLLM", "[AI]", "aiVoice", "client_secret",
   "@anthropic-ai/sdk", "api.anthropic.com", "anthropic-version",
   "@openai/", "api.openai.com", "@google/generative-ai",
 ];

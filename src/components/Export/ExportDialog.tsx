@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/editorStore";
 import { MARD_COLORS } from "../../data/mard221";
 import { getEffectiveColor } from "../../utils/colorHelper";
@@ -12,8 +13,10 @@ import {
 } from "../../utils/blueprintDecorations";
 import type { WatermarkPayload } from "../../adapters";
 import { appAlert } from "../Dialog/AppDialog";
+import { buildExportOutcomeMessage, type ExportFailure, type ExportItem } from "./exportOutcome";
 
 export function ExportDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
   const importedFileName = useEditorStore((s) => s.importedFileName);
@@ -83,6 +86,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const handleExport = async () => {
     if (!exportBlueprint && !exportPreview) return;
 
+    // Capture labels with the request so a later language switch cannot alter queued rendering.
+    const labels = {
+      legendByCount: t("export.labels.legendByCount"),
+      legendByCode: t("export.labels.legendByCode"),
+    };
     const adapter = getAdapter();
 
     // Ask user to pick a folder (use save dialog for the blueprint path)
@@ -91,8 +99,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       blueprintPath = await adapter.showSaveDialog(
         [
           format === "png"
-            ? { name: "PNG Image", extensions: ["png"] }
-            : { name: "JPEG Image", extensions: ["jpg", "jpeg"] },
+            ? { name: t("export.pngFilter"), extensions: ["png"] }
+            : { name: t("export.jpegFilter"), extensions: ["jpg", "jpeg"] },
         ],
         `${baseName}_pindou_export.${ext}`,
       );
@@ -104,20 +112,20 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       const cells = buildCells();
       saveWatermarkSettings(watermark);
 
-      const results: string[] = [];
-      const errors: string[] = [];
+      const results: ExportItem[] = [];
+      const errors: ExportFailure[] = [];
 
-      const tryExport = async (label: string, fn: () => Promise<void>) => {
+      const tryExport = async (item: ExportItem, fn: () => Promise<void>) => {
         try {
           await fn();
-          results.push(label);
-        } catch (e) {
-          errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+          results.push(item);
+        } catch (diagnostic) {
+          errors.push({ item, diagnostic });
         }
       };
 
       if (exportBlueprint && blueprintPath) {
-        await tryExport(`图纸: ${blueprintPath}`, () =>
+        await tryExport("blueprint", () =>
           adapter.exportImage({
             width: canvasSize.width,
             height: canvasSize.height,
@@ -130,12 +138,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             edge_padding: gridConfig.edgePadding,
             watermark: watermarkPayload,
             legend_options: { include_by_count: true, include_by_name: includeByNameLegend },
+            labels,
           }),
         );
 
         if (exportMirror) {
           const mirrorPath = blueprintPath.replace(/\.([^.]+)$/, "_mirror.$1");
-          await tryExport(`镜像图纸: ${mirrorPath}`, () =>
+          await tryExport("mirrorBlueprint", () =>
             adapter.exportImage({
               width: canvasSize.width,
               height: canvasSize.height,
@@ -148,6 +157,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               edge_padding: gridConfig.edgePadding,
               watermark: watermarkPayload,
               legend_options: { include_by_count: true, include_by_name: includeByNameLegend },
+            labels,
             }),
           );
         }
@@ -159,7 +169,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           previewPath = blueprintPath.replace(/\.[^.]+$/, "_preview.jpg");
         } else {
           const selected = await adapter.showSaveDialog(
-            [{ name: "JPEG Image", extensions: ["jpg", "jpeg"] }],
+            [{ name: t("export.jpegFilter"), extensions: ["jpg", "jpeg"] }],
             `${baseName}_pindou_preview.jpg`,
           );
           if (!selected) {
@@ -169,7 +179,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           previewPath = selected;
         }
 
-        await tryExport(`效果图: ${previewPath}`, () =>
+        await tryExport("preview", () =>
           adapter.exportPreview({
             width: canvasSize.width,
             height: canvasSize.height,
@@ -182,7 +192,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
 
         if (exportMirror) {
           const mirrorPreviewPath = previewPath.replace(/\.([^.]+)$/, "_mirror.$1");
-          await tryExport(`镜像效果图: ${mirrorPreviewPath}`, () =>
+          await tryExport("mirrorPreview", () =>
             adapter.exportPreview({
               width: canvasSize.width,
               height: canvasSize.height,
@@ -202,12 +212,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         setProjectInfo({ ...(projectInfo ?? {}), title: typedTitle });
       }
 
-      const successMsg = results.length ? `导出成功:\n${results.join("\n")}` : "";
-      const errorMsg = errors.length ? `\n\n以下项目失败:\n${errors.join("\n")}` : "";
-      await appAlert(`${successMsg}${errorMsg}`.trim() || "未导出任何文件", { title: "导出结果" });
+      await appAlert(buildExportOutcomeMessage(t, results, errors), { title: t("export.resultTitle") });
       onClose();
     } catch (e) {
-      await appAlert(`导出失败: ${e}`, { title: "导出失败" });
+      await appAlert(t("export.failure"), { title: t("export.failureTitle") });
       onClose();
     } finally {
       setIsExporting(false);
@@ -218,7 +226,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-[440px]">
         <div className="px-4 py-3 border-b flex justify-between items-center">
-          <h2 className="font-semibold text-sm">导出高分辨率图片</h2>
+          <h2 className="font-semibold text-sm">{t("export.dialogTitle")}</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -230,7 +238,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         <div className="p-4 flex flex-col gap-3">
           {/* Cell size */}
           <div>
-            <label className="text-xs text-gray-600 mb-1 block">每像素大小 (px)</label>
+            <label className="text-xs text-gray-600 mb-1 block">{t("export.cellSize")}</label>
             <input
               type="number"
               min={10}
@@ -240,13 +248,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               className="w-20 px-2 py-1 text-xs border rounded"
             />
             <p className="text-[10px] text-gray-400 mt-0.5">
-              输出尺寸: {outputWidth}×{outputHeight} px
+              {t("export.outputSize", { width: outputWidth, height: outputHeight })}
             </p>
           </div>
 
           {/* Format */}
           <div>
-            <label className="text-xs text-gray-600 mb-1 block">格式</label>
+            <label className="text-xs text-gray-600 mb-1 block">{t("export.format")}</label>
             <div className="flex gap-3">
               <label className="flex items-center gap-1 text-xs">
                 <input
@@ -271,7 +279,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
 
           {/* Export options */}
           <div>
-            <label className="text-xs text-gray-600 mb-1 block">导出内容</label>
+            <label className="text-xs text-gray-600 mb-1 block">{t("export.contents")}</label>
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input
@@ -280,7 +288,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setExportBlueprint(e.target.checked)}
                   className="w-3.5 h-3.5"
                 />
-                <span>📋 图纸（带网格线、色号、坐标、色块统计）</span>
+                <span>📋 {t("export.blueprint")}</span>
               </label>
               {exportBlueprint && (
                 <label className="flex items-center gap-2 text-[11px] cursor-pointer pl-6 text-gray-600">
@@ -290,7 +298,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                     onChange={(e) => setIncludeByNameLegend(e.target.checked)}
                     className="w-3 h-3"
                   />
-                  <span>同时包含「按代号」图例（默认只画「按数量」）</span>
+                  <span>{t("export.byCodeLegend")}</span>
                 </label>
               )}
               <label className="flex items-center gap-2 text-xs cursor-pointer">
@@ -300,7 +308,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setExportPreview(e.target.checked)}
                   className="w-3.5 h-3.5"
                 />
-                <span>🎨 效果图（模拟烫平后的样子，纯色块无辅助线）</span>
+                <span>🎨 {t("export.preview")}</span>
               </label>
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input
@@ -309,13 +317,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setExportMirror(e.target.checked)}
                   className="w-3.5 h-3.5"
                 />
-                <span>🪞 同时导出左右镜像（拼豆背面视角）</span>
+                <span>🪞 {t("export.mirror")}</span>
               </label>
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-gray-600 mb-1 block">水印与署名</label>
+            <label className="text-xs text-gray-600 mb-1 block">{t("export.watermark")}</label>
             <div className="flex flex-col gap-1.5">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input
@@ -324,11 +332,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setWatermark({ ...watermark, showHeader: e.target.checked })}
                   className="w-3.5 h-3.5"
                 />
-                <span>顶部应用标题（icon + PindouVerse）</span>
+                <span>{t("export.header")}</span>
               </label>
               {watermark.showHeader && (
                 <div className="pl-6">
-                  <label className="text-[11px] text-gray-500 block mb-0.5">标题</label>
+                  <label className="text-[11px] text-gray-500 block mb-0.5">{t("export.projectTitle")}</label>
                   {hasProjectTitle ? (
                     <>
                       <input
@@ -338,7 +346,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                         className="w-full px-2 py-1 text-xs border rounded bg-gray-50 text-gray-500"
                       />
                       <p className="text-[10px] text-gray-400 mt-0.5">
-                        标题来自当前项目设置，优先使用
+                        {t("export.projectTitleSource")}
                       </p>
                     </>
                   ) : (
@@ -347,13 +355,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                         type="text"
                         value={titleInput}
                         onChange={(e) => setTitleInput(e.target.value)}
-                        placeholder="(未设置，填写后将保存到项目信息)"
+                        placeholder={t("export.titlePlaceholder")}
                         className="w-full px-2 py-1 text-xs border rounded"
                       />
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         {titleInput.trim()
-                          ? "导出时将作为标题，并保存到项目信息"
-                          : "未设置标题，仅显示应用名"}
+                          ? t("export.titleWillSave")
+                          : t("export.titleAppOnly")}
                       </p>
                     </>
                   )}
@@ -367,7 +375,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setWatermark({ ...watermark, appWatermark: e.target.checked })}
                   className="w-3.5 h-3.5"
                 />
-                <span>在图中添加 PindouVerse 水印（45° 平铺）</span>
+                <span>{t("export.appWatermark")}</span>
               </label>
 
               <label className="flex items-center gap-2 text-xs cursor-pointer">
@@ -377,11 +385,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setWatermark({ ...watermark, authorWatermark: e.target.checked })}
                   className="w-3.5 h-3.5"
                 />
-                <span>在图中添加作者水印</span>
+                <span>{t("export.authorWatermark")}</span>
               </label>
               {watermark.authorWatermark && (
                 <div className="pl-6">
-                  <label className="text-[11px] text-gray-500 block mb-0.5">作者</label>
+                  <label className="text-[11px] text-gray-500 block mb-0.5">{t("export.author")}</label>
                   {projectAuthor ? (
                     <>
                       <input
@@ -391,7 +399,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                         className="w-full px-2 py-1 text-xs border rounded bg-gray-50 text-gray-500"
                       />
                       <p className="text-[10px] text-gray-400 mt-0.5">
-                        作者来自当前项目设置，优先使用
+                        {t("export.authorSource")}
                       </p>
                     </>
                   ) : (
@@ -400,13 +408,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                         type="text"
                         value={watermark.authorOverride}
                         onChange={(e) => setWatermark({ ...watermark, authorOverride: e.target.value })}
-                        placeholder="(未设置)"
+                        placeholder={t("export.notSet")}
                         className="w-full px-2 py-1 text-xs border rounded"
                       />
                       <p className="text-[10px] text-gray-400 mt-0.5">
                         {watermark.authorOverride.trim()
-                          ? "沿用上次填写的作者名，会被记住"
-                          : "未设置作者名，将不绘制作者水印"}
+                          ? t("export.authorRemembered")
+                          : t("export.authorMissing")}
                       </p>
                     </>
                   )}
@@ -420,7 +428,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             disabled={isExporting || (!exportBlueprint && !exportPreview)}
             className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-40"
           >
-            {isExporting ? "导出中..." : "导出"}
+            {t(isExporting ? "export.exporting" : "export.button")}
           </button>
         </div>
       </div>

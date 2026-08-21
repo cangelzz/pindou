@@ -2,6 +2,9 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { dispatchNewProjectCommand } from "./newProjectCommand";
+import { handleUiPlatformMessage } from "./uiPlatformHost";
+import { saveDocument } from "./saveDocument";
+import { SaveQueue } from "./saveQueue";
 
 // The custom editor panel that currently has focus. Used by the
 // pindouverse.undo/redo commands (bound to Ctrl+Z/Y) to forward undo/redo into
@@ -49,6 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("pindouverse.newProject", async () => {
       await dispatchNewProjectCommand({
+        language: vscode.env.language,
         getActivePanel: () => activePindouWebview,
         clearActivePanel: (panel) => {
           if (activePindouWebview === panel) activePindouWebview = undefined;
@@ -90,6 +94,8 @@ export function deactivate() {}
 
 class PindouEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "pindouverse.editor";
+  private readonly panels = new Set<vscode.WebviewPanel>();
+  private languageUpdateQueue: Promise<void> = Promise.resolve();
 
   static register(
     context: vscode.ExtensionContext,
@@ -115,6 +121,8 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken
   ): Promise<void> {
+    this.panels.add(webviewPanel);
+    const panelSub = webviewPanel.onDidDispose(() => this.panels.delete(webviewPanel));
     webviewPanel.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -163,6 +171,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 
     // Suppress reload during save (our own edit triggers onDidChangeTextDocument)
     let isSaving = false;
+    const saveQueue = new SaveQueue((value) => { isSaving = value; });
 
     // Listen for document changes (external edits)
     const changeDocSub = vscode.workspace.onDidChangeTextDocument((e) => {
@@ -173,22 +182,37 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
 
     // Listen for messages from webview
     webviewPanel.webview.onDidReceiveMessage(async (msg) => {
+      const handledUiMessage = await handleUiPlatformMessage(msg, {
+        language: vscode.env.language,
+        globalState: this.context.globalState,
+        postMessage: (message) => webviewPanel.webview.postMessage(message),
+        onLanguageChanged: (language, revision) => {
+          this.languageUpdateQueue = this.languageUpdateQueue.then(async () => {
+            await Promise.all([...this.panels]
+              .map((panel) => panel.webview.postMessage({ type: "uiLanguageChanged", language, revision }).then(() => undefined)));
+          });
+          return this.languageUpdateQueue;
+        },
+      });
+      if (handledUiMessage) return;
+
       switch (msg.type) {
         case "ready":
           sendDocument();
           break;
 
         case "save": {
-          isSaving = true;
           const edit = new vscode.WorkspaceEdit();
-          edit.replace(
-            document.uri,
-            new vscode.Range(0, 0, document.lineCount, 0),
-            msg.content
-          );
-          await vscode.workspace.applyEdit(edit);
-          await document.save();
-          isSaving = false;
+          await saveQueue.run(() => saveDocument(msg, {
+            replace: (content) => edit.replace(
+              document.uri,
+              new vscode.Range(0, 0, document.lineCount, 0),
+              content,
+            ),
+            applyEdit: () => vscode.workspace.applyEdit(edit),
+            save: () => document.save(),
+            postMessage: (message) => webviewPanel.webview.postMessage(message),
+          }));
           break;
         }
 
@@ -448,6 +472,7 @@ class PindouEditorProvider implements vscode.CustomTextEditorProvider {
     webviewPanel.onDidDispose(() => {
       changeDocSub.dispose();
       viewStateSub.dispose();
+      panelSub.dispose();
       if (activePindouWebview === webviewPanel) activePindouWebview = undefined;
     });
   }

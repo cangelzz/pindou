@@ -464,7 +464,7 @@ describe("editor store project document semantics", () => {
     expect(useEditorStore.getState()).toMatchObject({
       projectPath: "second.pindou",
       projectDocument: second,
-      lastSavedAt: afterNewSave.lastSavedAt,
+      saveStatus: afterNewSave.saveStatus,
       baselineCanvasData: afterNewSave.baselineCanvasData,
       isDirty: afterNewSave.isDirty,
     });
@@ -489,7 +489,7 @@ describe("editor store project document semantics", () => {
     expect(useEditorStore.getState()).toMatchObject({
       projectPath: "opened.pindou",
       projectDocument: openedDocument,
-      lastSavedAt: afterOpen.lastSavedAt,
+      saveStatus: afterOpen.saveStatus,
       baselineCanvasData: afterOpen.baselineCanvasData,
       isDirty: afterOpen.isDirty,
     });
@@ -514,7 +514,7 @@ describe("editor store project document semantics", () => {
       canvasSize: { width: 3, height: 4 },
       projectPath: null,
       projectDocument: null,
-      lastSavedAt: newCanvasState.lastSavedAt,
+      saveStatus: newCanvasState.saveStatus,
       baselineCanvasData: newCanvasState.baselineCanvasData,
       isDirty: newCanvasState.isDirty,
     });

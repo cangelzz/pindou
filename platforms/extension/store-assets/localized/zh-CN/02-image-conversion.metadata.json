@@ -1,0 +1,34 @@
+{
+  "image": "02-image-conversion.png",
+  "locale": "zh-CN",
+  "scenario": "image-conversion",
+  "sample": "dinosaur-triceratops.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "e2eae2baea3ff253f208ee052e2860667dcacf69fb30c877c8815defb62daf50",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 186,
+      "y": 112.328125,
+      "width": 624,
+      "height": 576
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 8,
+      "offsetX": 138,
+      "offsetY": 37
+    }
+  }
+}

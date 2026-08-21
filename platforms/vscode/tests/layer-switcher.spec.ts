@@ -38,7 +38,7 @@ test.describe("Canvas status-bar layer switcher", () => {
     // Top-down menu order = reversed layers (newest first)
     await expect(menu).toContainText("参考");
     await expect(menu).toContainText("草图");
-    await expect(menu).toContainText("拼豆层");
+    await expect(menu).toContainText("图层 1");
   });
 
   test("clicking a menu item switches the active layer", async ({ page }) => {

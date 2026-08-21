@@ -32,7 +32,7 @@ describe("web image context task", () => {
     const f = fakeApi(); registerImageTaskHandlers(f.api, { now: () => f.now, randomUUID: () => "id" });
     f.installed()?.(); await tick();
     expect(f.api.contextMenus.remove).toHaveBeenCalledWith("convert-image");
-    expect(f.api.contextMenus.create).toHaveBeenCalledWith({ id: "convert-image", title: "在 PindouVerse 中转换", contexts: ["image"] });
+    expect(f.api.contextMenus.create).toHaveBeenCalledWith({ id: "convert-image", title: "Convert with PindouVerse", contexts: ["image"] });
     f.clicked()?.({ menuItemId: "other", srcUrl: "https://a/x.png" }); await tick();
     expect(f.api.tabs.create).not.toHaveBeenCalled();
   });

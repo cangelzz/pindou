@@ -7,8 +7,8 @@ import { pathToFileURL } from "node:url";
 import { ZipArchive } from "archiver";
 
 import { scanExtensionArtifacts } from "./assert-extension-no-ai.mjs";
+import { readExtensionVersion } from "./extension-version.mjs";
 import { validateDirectory, validateZip } from "./validate-extension-manifest.mjs";
-import { computeVersion } from "./version.mjs";
 
 const FIXED_DATE = new Date("2000-01-01T00:00:00.000Z");
 const FORBIDDEN = /(^|\/)(src|tests?|e2e)(\/|$)|\.(?:map|ts|tsx)$|(?:\.spec|\.test)\.[^/]+$/i;
@@ -83,7 +83,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const brands = process.argv.slice(2);
   const selected = brands.length ? brands : ["chrome", "edge"];
   for (const brand of selected) assert.ok(BRANDS.has(brand), "Usage: package-extension.mjs [chrome|edge ...]");
-  const version = computeVersion({ repoRoot });
+  const version = readExtensionVersion({ packagePath: join(repoRoot, "platforms/vscode/package.json") });
   for (const brand of selected) {
     const target = await packageExtension({
       brand,

@@ -1,13 +1,18 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import App from "../../../src/App";
 import { setAdapter } from "../../../src/adapters";
-import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject } from "../src/vscodeAdapter";
+import { VScodeAdapter, setDocumentLoadHandler, signalReady, requestGitHubToken, requestNewProject, sendRequest } from "../src/vscodeAdapter";
 import { useEditorStore } from "../../../src/store/editorStore";
 import { VSCodeGitHubService } from "../../../src/platform/vscodeGitHubService";
 import { normalizeProjectFromDisk } from "../../../src/utils/projectSerialization";
 import { setPlatformServices } from "../../../src/platform/serviceRegistry";
 import { createLegacyPlatformServices } from "../../../src/platform/services";
+import { VSCodeLocaleService, VSCodeStorageService } from "../src/vscodeServices";
+import { bootstrapUiLanguage } from "../../../src/i18n/bootstrap";
+import { initializeI18n } from "../../../src/i18n";
+import { renderStartupFailure } from "../../../src/i18n/startup";
+import { appAlert, appConfirm, appPrompt } from "../../../src/components/Dialog/AppDialog";
 import "./styles.css";
 
 declare const __PINDOU_VERSION__: string;
@@ -28,7 +33,13 @@ const mutableCapabilities = {
   environmentLabel: "VS Code Extension",
 } as const;
 const legacyServices = createLegacyPlatformServices(adapter, mutableCapabilities);
-setPlatformServices({ ...legacyServices, github: githubService });
+const services = {
+  ...legacyServices,
+  github: githubService,
+  storage: new VSCodeStorageService(sendRequest),
+  locale: new VSCodeLocaleService(sendRequest),
+};
+setPlatformServices(services);
 
 (window as any).__pindouVersion = __PINDOU_VERSION__;
 // Expose the Zustand store on window for Playwright tests. Harmless in
@@ -38,6 +49,7 @@ setPlatformServices({ ...legacyServices, github: githubService });
 // Expose the platform adapter for Playwright tests (e.g. blueprint import).
 // Same rationale as __pindouStore — unreachable from any normal user flow.
 (window as any).__pindouAdapter = adapter;
+(window as any).__pindouDialogs = { prompt: appPrompt, alert: appAlert, confirm: appConfirm };
 
 // Test seams exercise the real App DOM; production capabilities stay fixed unless a test calls this hook.
 (window as any).__pindouTestGitHub = { setSession: (session: any) => githubService.setSessionForTest(session) };
@@ -66,8 +78,23 @@ setPlatformServices({ ...legacyServices, github: githubService });
 // __pindouHostHandlesUndo tells PixelCanvas to stand down its own Ctrl+Z/Y
 // handler in VS Code so we never undo twice per keypress.
 (window as any).__pindouHostHandlesUndo = true;
+let languageBootstrapComplete = false;
+let latestHostLanguage: { language: "en" | "zh-CN"; revision: number } | null = null;
+let appliedLanguageRevision = -1;
+async function applyLatestHostLanguage() {
+  if (!languageBootstrapComplete || !latestHostLanguage || latestHostLanguage.revision <= appliedLanguageRevision) return;
+  const update = latestHostLanguage;
+  appliedLanguageRevision = update.revision;
+  await initializeI18n(update.language);
+  useEditorStore.getState().localizeDefaultLayerNames();
+}
 window.addEventListener("message", (event) => {
   const msg = event.data;
+  if (msg?.type === "uiLanguageChanged" && (msg.language === "en" || msg.language === "zh-CN") && Number.isInteger(msg.revision) && msg.revision >= 0) {
+    if (!latestHostLanguage || msg.revision > latestHostLanguage.revision) latestHostLanguage = { language: msg.language, revision: msg.revision };
+    void applyLatestHostLanguage();
+    return;
+  }
   if (!msg || (msg.type !== "undo" && msg.type !== "redo")) return;
   // A focused text input owns Ctrl+Z for native text editing — don't hijack it.
   const tag = (document.activeElement as HTMLElement | null)?.tagName;
@@ -104,6 +131,20 @@ function WebviewApp() {
   return <App />;
 }
 
-// Render the app
-const root = ReactDOM.createRoot(document.getElementById("root")!);
-root.render(<WebviewApp />);
+// Initialize language before mounting. RPCs intentionally happen before ready;
+// the host accepts requestId messages as soon as the webview listener is attached.
+async function start() {
+  try {
+    await bootstrapUiLanguage(services);
+  } catch {
+    await initializeI18n("en");
+  }
+  useEditorStore.getState().localizeDefaultLayerNames();
+  languageBootstrapComplete = true;
+  await applyLatestHostLanguage();
+  ReactDOM.createRoot(document.getElementById("root")!).render(<WebviewApp />);
+}
+
+void start().catch((error) => {
+  renderStartupFailure(document.getElementById("root") as HTMLElement, error);
+});

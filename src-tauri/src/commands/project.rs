@@ -66,6 +66,8 @@ pub struct CanvasSize {
 pub struct BeadLayer {
     pub id: String,
     pub name: String,
+    #[serde(rename = "defaultNameIndex", skip_serializing_if = "Option::is_none", default)]
+    pub default_name_index: Option<u32>,
     pub visible: bool,
     pub opacity: f64,
     pub data: Vec<Vec<CellData>>,
@@ -380,13 +382,15 @@ mod tests {
             "canvasData": [[3]],
             "layers": [{
                 "id": "l1", "name": "底", "visible": true, "opacity": 1.0,
-                "data": [[3]]
+                "defaultNameIndex": 7, "data": [[3]]
             }],
             "createdAt": "t", "updatedAt": "t"
         }"#;
         let p: ProjectFile = serde_json::from_str(json).unwrap();
         assert_eq!(p.layers.as_ref().unwrap().len(), 1);
+        assert_eq!(p.layers.as_ref().unwrap()[0].default_name_index, Some(7));
         let s = serde_json::to_string(&p).unwrap();
         assert!(s.contains("\"data\":[[3]]"), "actual: {}", s);
+        assert!(s.contains("\"defaultNameIndex\":7"), "actual: {}", s);
     }
 }

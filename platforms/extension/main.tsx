@@ -17,6 +17,11 @@ import { BrowserGitHubService } from "./githubService";
 import { BrowserExternalLinkService } from "./externalLinkService";
 import { getGitHubClientId } from "./config";
 import { useEditorStore } from "@/store/editorStore";
+import { BrowserLocaleService } from "./browserLocaleService";
+import { createNavigatorLocaleService } from "@/platform/webRuntimeServices";
+import { bootstrapUiLanguage } from "@/i18n/bootstrap";
+import { initializeI18n } from "@/i18n";
+import { renderStartupFailure } from "@/i18n/startup";
 
 declare const __PINDOU_EXTENSION_TEST__: boolean;
 
@@ -41,19 +46,22 @@ const imageImports = browserApi
   ? new ExtensionImageImportService(createImageTaskBrokerClient(browserApi), fetch, fileApi)
   : legacyServices.imageImports;
 const storage = browserApi ? new BrowserStorage(browserApi.storage.local, browserApi.runtime) : legacyServices.storage;
+const locale = browserApi ? new BrowserLocaleService(browserApi.i18n) : createNavigatorLocaleService();
 const github = browserApi
   ? new BrowserGitHubService({ clientId: getGitHubClientId(import.meta.env.VITE_GITHUB_CLIENT_ID), storage })
   : legacyServices.github;
-setPlatformServices({
+const services = {
   ...legacyServices,
   projectFiles: new BrowserProjectFileService(fileApi, browserDownloadSink),
   images: { ...legacyServices.images, chooseLocalImage: () => imageImports.chooseLocalImage() },
   imageImports,
   recovery: new BrowserRecoveryStorage(),
   storage,
+  locale,
   github,
   externalLinks: browserApi ? new BrowserExternalLinkService(browserApi.tabs) : legacyServices.externalLinks,
-});
+};
+setPlatformServices(services);
 void github.restore?.();
 const imageTaskInbox = browserApi ? createImageTaskInbox(browserApi, imageImports) : undefined;
 void imageTaskInbox?.start();
@@ -61,7 +69,7 @@ window.addEventListener("unload", () => imageTaskInbox?.dispose(), { once: true 
 
 if (__PINDOU_EXTENSION_TEST__) {
   const allowedActions = new Set([
-    "newCanvas", "setCell", "addLayer", "setProjectInfo", "openProject", "saveProject", "saveProjectAs",
+    "newCanvas", "setCell", "addLayer", "setProjectInfo", "loadProjectDocument", "fitToWindow", "openProject", "saveProject", "saveProjectAs",
     "autoSave", "createSnapshot", "loadSnapshots", "restoreSnapshot", "deleteSnapshot",
   ]);
   Object.defineProperty(globalThis, "__pindouExtensionTest", {
@@ -81,8 +89,15 @@ if (__PINDOU_EXTENSION_TEST__) {
   });
 }
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App imageTaskInbox={imageTaskInbox} />
-  </React.StrictMode>
-);
+async function start() {
+  try { await bootstrapUiLanguage(services); }
+  catch { await initializeI18n("en"); }
+  useEditorStore.getState().localizeDefaultLayerNames();
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode><App imageTaskInbox={imageTaskInbox} /></React.StrictMode>
+  );
+}
+
+void start().catch((error) => {
+  renderStartupFailure(document.getElementById("root") as HTMLElement, error);
+});

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/editorStore";
 import { matchImageToMard } from "../../utils/colorMatching";
 import { COLOR_GROUPS, MARD_COLORS, getGroupIndices, groupIndicesByLetter } from "../../data/mard221";
@@ -22,6 +23,7 @@ import { ColorAdjustPanel } from "../ColorAdjust/ColorAdjustPanel";
 import type { ImageImportAsset } from "../../platform/imageImportService";
 import { getPlatformServices } from "../../platform/serviceRegistry";
 import { loadLocallySelectedImage } from "./loadLocallySelectedImage";
+import { imageLoadErrorKey } from "../../utils/imageLoader";
 import { createInitialAssetRelease } from "./initialAssetRelease";
 
 // Discrete zoom levels for the import preview canvas (crop mode only)
@@ -33,6 +35,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
   initialAsset?: ImageImportAsset;
   onInitialAssetReleased?: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const loadCanvasData = useEditorStore((s) => s.loadCanvasData);
   const placeImageOnCanvas = useEditorStore((s) => s.placeImageOnCanvas);
   const setRefImage = useEditorStore((s) => s.setRefImage);
@@ -75,7 +78,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
     const adapter = getAdapter();
     if (!("setImageImportFile" in adapter)) return;
     (adapter as PlatformAdapterWithImageFile).setImageImportFile(initialAsset.file);
-    void adapter.previewImage(initialAsset.displayName).then(setImagePreview).catch(async (e) => appAlert(`加载预览失败: ${e}`));
+    void adapter.previewImage(initialAsset.displayName).then(setImagePreview).catch(async (e) => appAlert(t(imageLoadErrorKey(e))));
   }, [initialAsset]);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
 
@@ -265,11 +268,11 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
         selected = loaded.displayName;
         selectedPreview = loaded.preview;
       } catch (e) {
-        await appAlert(`加载预览失败: ${e}`);
+        await appAlert(t(imageLoadErrorKey(e)));
         return;
       }
     } else {
-      selected = await images.showOpenDialog([{ name: "Image", extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"] }]);
+      selected = await images.showOpenDialog([{ name: t("import.image.fileFilter"), extensions: ["png", "jpg", "jpeg", "bmp", "gif", "webp"] }]);
     }
     if (selected) {
       setFilePath(selected);
@@ -287,7 +290,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
         const preview = selectedPreview ?? await adapter.previewImage(selected);
         setImagePreview(preview);
       } catch (e) {
-        await appAlert(`加载预览失败: ${e}`);
+        await appAlert(t(imageLoadErrorKey(e)));
       }
     }
   };
@@ -818,10 +821,10 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
       setMatchedPreview(null);
       setActualSize(null);
       setAutoDetectResult(
-        `检测到网格: ${result.gridCols}×${result.gridRows} (cell≈${result.cellSize}px, 置信度 ${Math.round(result.confidence * 100)}%)`
+        t("import.image.detectSuccess", { cols: result.gridCols, rows: result.gridRows, cell: result.cellSize, confidence: Math.round(result.confidence * 100) })
       );
     } catch (e) {
-      setAutoDetectResult(`检测失败: ${e}`);
+      setAutoDetectResult(t(imageLoadErrorKey(e)));
     }
   };
 
@@ -866,7 +869,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
       setActualSize({ width: data.width, height: data.height });
       setShowComparison(false);
     } catch (e) {
-      await appAlert(`导入失败: ${e}`);
+      await appAlert(t(imageLoadErrorKey(e)));
     } finally {
       setIsProcessing(false);
     }
@@ -900,7 +903,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
       setShowComparison(true);
       if (!preserveSelection) setSelectedCompareIdx(null);
     } catch (e) {
-      await appAlert(`对比生成失败: ${e}`);
+      await appAlert(t(imageLoadErrorKey(e)));
     } finally {
       setIsProcessing(false);
     }
@@ -1001,7 +1004,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className={`bg-white rounded-lg shadow-xl max-h-[90vh] flex flex-col transition-all ${showComparison ? "w-[90vw] max-w-[1200px]" : "w-[560px]"}`}>
         <div className="px-4 py-3 border-b flex justify-between items-center">
-          <h2 className="font-semibold text-sm">导入图片</h2>
+          <h2 className="font-semibold text-sm">{t("import.image.title")}</h2>
           <button
             onClick={closeAndRelease}
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -1014,17 +1017,17 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
           {/* File selection */}
           <div>
             <label className="text-xs text-gray-600 mb-1 block">
-              图片文件
+              {t("import.image.file")}
             </label>
             <div className="flex gap-2">
               {!initialAsset && <button
                 onClick={handleSelectFile}
                 className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
               >
-                选择文件
+                {t("import.image.chooseFile")}
               </button>}
               <span className="text-xs text-gray-500 self-center truncate flex-1">
-                {filePath || "未选择"}
+                {filePath || t("import.image.notSelected")}
               </span>
             </div>
           </div>
@@ -1034,7 +1037,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
             <div>
               {/* Mode & grid toggles */}
               <div className="flex items-center gap-2 mb-1">
-                <label className="text-xs text-gray-600">工具:</label>
+                <label className="text-xs text-gray-600">{t("import.image.tools")}</label>
                 <button
                   onClick={() => setInteractionMode("crop")}
                   className={`px-2 py-0.5 text-xs rounded border ${
@@ -1042,9 +1045,9 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       ? "bg-blue-100 border-blue-400 text-blue-700"
                       : "hover:bg-gray-100"
                   }`}
-                  title="拖拽选择裁剪区域"
+                  title={t("import.image.cropHint")}
                 >
-                  ✂️ 裁剪
+                  ✂️ {t("import.image.crop")}
                 </button>
                 <button
                   onClick={() => setInteractionMode("loupe")}
@@ -1053,9 +1056,9 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       ? "bg-blue-100 border-blue-400 text-blue-700"
                       : "hover:bg-gray-100"
                   }`}
-                  title="移动鼠标查看像素网格对应"
+                  title={t("import.image.loupeHint")}
                 >
-                  🔍 放大镜
+                  🔍 {t("import.image.loupe")}
                 </button>
                 <div className="border-l mx-1 h-4" />
                 <label className="flex items-center gap-1 text-xs cursor-pointer">
@@ -1065,12 +1068,12 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                     onChange={(e) => setShowGrid(e.target.checked)}
                     className="w-3 h-3"
                   />
-                  像素网格
+                  {t("import.image.pixelGrid")}
                 </label>
                 {interactionMode === "crop" && (
                   <>
                     <div className="border-l mx-1 h-4" />
-                    <span className="text-[10px] text-gray-500">缩放:</span>
+                    <span className="text-[10px] text-gray-500">{t("import.image.zoom")}</span>
                     <button
                       data-testid="preview-zoom-out"
                       onClick={() =>
@@ -1079,7 +1082,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                         )
                       }
                       className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
-                      title="缩小"
+                      title={t("tools.zoomOut")}
                     >
                       −
                     </button>
@@ -1087,7 +1090,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       data-testid="preview-zoom-reset"
                       onClick={() => setPreviewZoom(1)}
                       className="text-[10px] text-gray-500 w-7 text-center hover:text-gray-700"
-                      title="重置缩放"
+                      title={t("tools.resetZoom")}
                     >
                       {previewZoom}x
                     </button>
@@ -1101,7 +1104,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                         )
                       }
                       className="w-5 h-5 text-[10px] border rounded hover:bg-gray-200 flex items-center justify-center"
-                      title="放大"
+                      title={t("tools.zoomIn")}
                     >
                       +
                     </button>
@@ -1113,7 +1116,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
               {showGrid && imagePreview && (
                 <div className="flex items-center gap-2 mb-1">
                   <label className="text-[10px] text-gray-500 whitespace-nowrap">
-                    网格宽度:
+                    {t("import.image.gridWidth")}
                   </label>
                   <input
                     type="range"
@@ -1125,7 +1128,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   />
                   <span className="text-[10px] text-gray-500 w-14 text-right">
                     {gridWidthOverride === 0
-                      ? "自动"
+                      ? t("import.image.auto")
                       : `${gridWidthOverride}px`}
                   </span>
                   {gridWidthOverride > 0 && (
@@ -1133,7 +1136,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       onClick={() => setGridWidthOverride(0)}
                       className="text-[10px] text-blue-500 hover:text-blue-700 underline"
                     >
-                      自动
+                      {t("import.image.auto")}
                     </button>
                   )}
                 </div>
@@ -1144,7 +1147,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                 <div className="flex flex-col gap-1 mb-1">
                   <div className="flex items-center gap-2">
                     <label className="text-[10px] text-gray-500 w-16 whitespace-nowrap">
-                      水平偏移:
+                      {t("import.image.horizontalOffset")}
                     </label>
                     <input
                       type="range"
@@ -1161,7 +1164,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   </div>
                   <div className="flex items-center gap-2">
                     <label className="text-[10px] text-gray-500 w-16 whitespace-nowrap">
-                      垂直偏移:
+                      {t("import.image.verticalOffset")}
                     </label>
                     <input
                       type="range"
@@ -1181,7 +1184,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       onClick={() => { setGridOffsetX(0); setGridOffsetY(0); }}
                       className="text-[10px] text-blue-500 hover:text-blue-700 underline self-end"
                     >
-                      重置偏移
+                      {t("import.image.resetOffset")}
                     </button>
                   )}
                 </div>
@@ -1233,17 +1236,17 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       />
                       <span className="text-[10px] text-gray-400">
                         {loupePinned
-                          ? "拖拽图片移动位置"
+                          ? t("import.image.loupeDrag")
                           : loupePos
-                            ? "点击图片固定"
-                            : "移动鼠标到图片上"}
+                            ? t("import.image.loupePin")
+                            : t("import.image.loupeMove")}
                       </span>
                       {loupePinned && (
                         <button
                           onClick={() => setLoupePinned(false)}
                           className="text-[10px] text-blue-500 hover:text-blue-700 underline"
                         >
-                          取消固定
+                          {t("import.image.unpin")}
                         </button>
                       )}
                     </div>
@@ -1251,25 +1254,23 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                 </div>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="text-[10px] text-gray-400">
-                    原图: {imagePreview.original_width}×
-                    {imagePreview.original_height}
+                    {t("import.image.original", { width: imagePreview.original_width, height: imagePreview.original_height })}
                   </span>
                   {gridCellSize > 0 && (
                     <span className="text-[10px] text-yellow-600">
-                      每颗珠≈{srcPixelsPerBead.toFixed(1)}×
-                      {srcPixelsPerBead.toFixed(1)}px
+                      {t("import.image.beadPixels", { value: srcPixelsPerBead.toFixed(1) })}
                     </span>
                   )}
                   {cropRect && (
                     <>
                       <span className="text-[10px] text-blue-500">
-                        选区: {cropRect.width}×{cropRect.height}
+                        {t("import.image.selection", { width: cropRect.width, height: cropRect.height })}
                       </span>
                       <button
                         onClick={handleClearCrop}
                         className="text-[10px] text-red-400 hover:text-red-600 underline"
                       >
-                        清除选区
+                        {t("import.image.clearSelection")}
                       </button>
                     </>
                   )}
@@ -1281,23 +1282,23 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
           {/* Max dimension with slider */}
           <div>
             <label className="text-xs text-gray-600 mb-1 block">
-              最大边长 (保持比例)
+              {t("import.image.maxDimension")}
             </label>
             <div className="flex gap-2 mb-1">
               {imagePreview && (
                 <button
                   onClick={handleAutoDetect}
                   className="px-2 py-1 text-xs rounded border bg-amber-50 border-amber-400 text-amber-700 hover:bg-amber-100"
-                  title="自动检测像素画网格大小"
+                  title={t("import.image.autoDetectHint")}
                 >
-                  🔍 自动检测
+                  🔍 {t("import.image.autoDetect")}
                 </button>
               )}
               {[
                 { label: "26", v: 26 },
-                { label: "52 (中板)", v: 52 },
+                { label: `52 (${t("import.image.mediumBoard")})`, v: 52 },
                 { label: "78", v: 78 },
-                { label: "104 (大板)", v: 104 },
+                { label: `104 (${t("import.image.largeBoard")})`, v: 104 },
               ].map((p) => (
                 <button
                   key={p.v}
@@ -1346,7 +1347,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
             </div>
             {actualSize && (
               <p className="text-xs text-green-600 mt-1">
-                图片尺寸: {actualSize.width}×{actualSize.height}
+                {t("import.image.imageSize", { width: actualSize.width, height: actualSize.height })}
               </p>
             )}
             {autoDetectResult && (
@@ -1365,7 +1366,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                 onChange={(e) => setUseCustomCanvas(e.target.checked)}
                 className="w-3 h-3"
               />
-              自定义画布尺寸（图片可小于画布）
+              {t("import.image.customCanvas")}
             </label>
             {useCustomCanvas && (
               <div className="flex flex-col gap-1.5 ml-4">
@@ -1388,7 +1389,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   ))}
                 </div>
                 <div className="flex gap-2 items-center text-xs">
-                  <span>宽</span>
+                  <span>{t("canvas.width")}</span>
                   <input
                     type="number"
                     min={4}
@@ -1397,7 +1398,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                     onChange={(e) => setCanvasW(Number(e.target.value))}
                     className="w-14 px-1 py-0.5 border rounded text-center"
                   />
-                  <span>高</span>
+                  <span>{t("canvas.height")}</span>
                   <input
                     type="number"
                     min={4}
@@ -1408,7 +1409,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   />
                 </div>
                 <div className="flex gap-2 items-center text-xs">
-                  <span className="text-gray-500">放置位置:</span>
+                  <span className="text-gray-500">{t("import.image.placement")}</span>
                   <label className="flex items-center gap-1 cursor-pointer">
                     <input
                       type="radio"
@@ -1416,7 +1417,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       checked={placement === "center"}
                       onChange={() => setPlacement("center")}
                     />
-                    居中
+                    {t("import.image.center")}
                   </label>
                   <label className="flex items-center gap-1 cursor-pointer">
                     <input
@@ -1425,7 +1426,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       checked={placement === "top-left"}
                       onChange={() => setPlacement("top-left")}
                     />
-                    左上角
+                    {t("import.image.topLeft")}
                   </label>
                 </div>
                 {actualSize && (
@@ -1435,8 +1436,8 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       : "text-green-600"
                   }`}>
                     {actualSize.width > canvasW || actualSize.height > canvasH
-                      ? `⚠ 图片(${actualSize.width}×${actualSize.height})超出画布(${canvasW}×${canvasH})，会被裁剪`
-                      : `画布 ${canvasW}×${canvasH}，图片 ${actualSize.width}×${actualSize.height}`}
+                      ? t("import.image.canvasOverflow", { imageWidth: actualSize.width, imageHeight: actualSize.height, canvasWidth: canvasW, canvasHeight: canvasH })
+                      : t("import.image.canvasFit", { imageWidth: actualSize.width, imageHeight: actualSize.height, canvasWidth: canvasW, canvasHeight: canvasH })}
                   </p>
                 )}
               </div>
@@ -1446,7 +1447,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
           {/* Color group selector */}
           <div>
             <label className="text-xs text-gray-600 mb-1 block">
-              色组范围
+              {t("import.image.colorGroup")}
             </label>
             <select
               value={colorGroupId}
@@ -1454,7 +1455,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
               className="w-full px-2 py-1 text-xs border rounded"
             >
               {COLOR_GROUPS.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
+                <option key={g.id} value={g.id}>{t(`import.image.colorGroups.${g.id}`)}</option>
               ))}
             </select>
           </div>
@@ -1466,7 +1467,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
               onClick={() => setCalibrationPanelOpen((v) => !v)}
               className="w-full px-3 py-2 flex justify-between items-center text-xs hover:bg-gray-50"
             >
-              <span>{calibrationPanelOpen ? "▼" : "▶"} 色彩校正</span>
+              <span>{calibrationPanelOpen ? "▼" : "▶"} {t("import.image.calibration")}</span>
               <label className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                 <input
                   type="checkbox"
@@ -1475,16 +1476,16 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                     setCalibration((prev) => ({ ...prev, enabled: e.target.checked }))
                   }
                 />
-                <span>启用</span>
+                <span>{t("import.image.enabled")}</span>
               </label>
             </button>
 
             {calibrationPanelOpen && (
               <div className="p-3 border-t flex flex-col gap-3 text-xs">
                 <div className="flex flex-col gap-1">
-                  <span className="text-gray-500">参考点 (在预览图上拖矩形 → 选 MARD 色):</span>
+                  <span className="text-gray-500">{t("import.image.references")}</span>
                   {calibration.points.length === 0 ? (
-                    <p className="text-gray-400 italic py-1">暂无参考点</p>
+                    <p className="text-gray-400 italic py-1">{t("import.image.noReferences")}</p>
                   ) : (
                     calibration.points.map((p, idx) => {
                       const target = MARD_COLORS[p.targetColorIndex];
@@ -1495,7 +1496,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                           <div
                             className="w-5 h-5 rounded border shrink-0"
                             style={{ background: `rgb(${p.sampledRgb.map((v) => Math.round(v)).join(",")})` }}
-                            title={`采样 (${p.sampledRgb.map((v) => Math.round(v)).join(",")})`}
+                            title={`${t("import.image.sample")} (${p.sampledRgb.map((v) => Math.round(v)).join(",")})`}
                           />
                           <span className="text-gray-400">→</span>
                           <button
@@ -1507,7 +1508,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                               })
                             }
                             className="flex items-center gap-1 flex-1 min-w-0 hover:bg-gray-100 rounded px-1 py-0.5 text-left"
-                            title="点击更改目标色"
+                            title={t("import.image.changeTarget")}
                           >
                             <div
                               className="w-5 h-5 rounded border shrink-0"
@@ -1526,7 +1527,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                             }
                             className="text-red-500 hover:bg-red-50 px-2 py-0.5 rounded"
                           >
-                            删
+                            {t("import.image.delete")}
                           </button>
                         </div>
                       );
@@ -1539,11 +1540,11 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   disabled={!imagePreview || previewMode === "sample"}
                   className="self-start px-3 py-1 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
                 >
-                  {previewMode === "sample" ? "拖矩形选择采样区..." : "+ 添加参考点"}
+                  {t(previewMode === "sample" ? "import.image.selectSample" : "import.image.addReference")}
                 </button>
 
                 <div className="text-[10px] text-gray-400">
-                  系数: R {calibrationCoef.a[0].toFixed(2)} {calibrationCoef.b[0] >= 0 ? "+" : ""}{calibrationCoef.b[0].toFixed(1)},
+                  {t("import.image.coefficients")} R {calibrationCoef.a[0].toFixed(2)} {calibrationCoef.b[0] >= 0 ? "+" : ""}{calibrationCoef.b[0].toFixed(1)},
                   G {calibrationCoef.a[1].toFixed(2)} {calibrationCoef.b[1] >= 0 ? "+" : ""}{calibrationCoef.b[1].toFixed(1)},
                   B {calibrationCoef.a[2].toFixed(2)} {calibrationCoef.b[2] >= 0 ? "+" : ""}{calibrationCoef.b[2].toFixed(1)}
                 </div>
@@ -1555,9 +1556,9 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                 onClick={() => setAdjustPanelOpen((v) => !v)}
                 className="w-full px-3 py-2 flex justify-between items-center text-xs hover:bg-gray-50"
               >
-                <span>{adjustPanelOpen ? "▼" : "▶"} 图像调整</span>
+                <span>{adjustPanelOpen ? "▼" : "▶"} {t("import.image.adjustment")}</span>
                 <span className={isIdentity(adjustments) ? "text-gray-400" : "text-blue-600"}>
-                  {isIdentity(adjustments) ? "无调整" : "已调整"}
+                  {t(isIdentity(adjustments) ? "import.image.adjust.none" : "import.image.adjust.changed")}
                 </span>
               </button>
               {adjustPanelOpen && (
@@ -1571,7 +1572,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
           {/* Algorithm & resize mode */}
           <div>
             <label className="text-xs text-gray-600 mb-1 block">
-              颜色匹配算法
+              {t("import.image.algorithm")}
             </label>
             <div className="flex gap-2">
               <label className="flex items-center gap-1 text-xs">
@@ -1581,7 +1582,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   checked={algorithm === "ciede2000"}
                   onChange={() => setAlgorithm("ciede2000")}
                 />
-                CIELAB ΔE (推荐)
+                CIELAB ΔE ({t("import.image.recommended")})
               </label>
               <label className="flex items-center gap-1 text-xs">
                 <input
@@ -1594,7 +1595,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
               </label>
             </div>
             <label className="text-xs text-gray-600 mt-2 mb-1 block">
-              缩放模式
+              {t("import.image.resizeMode")}
             </label>
             <div className="flex gap-2">
               <label className="flex items-center gap-1 text-xs">
@@ -1604,7 +1605,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   checked={sharpEdge}
                   onChange={() => setSharpEdge(true)}
                 />
-                锐利边缘 (推荐线条图)
+                {t("import.image.sharp")}
               </label>
               <label className="flex items-center gap-1 text-xs">
                 <input
@@ -1613,11 +1614,11 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   checked={!sharpEdge}
                   onChange={() => setSharpEdge(false)}
                 />
-                平滑过渡 (照片)
+                {t("import.image.smooth")}
               </label>
             </div>
             <label className="text-xs text-gray-600 mt-2 mb-1 block">
-              宽度补偿 ({Math.round(widthRatio * 100)}%)
+              {t("import.image.widthCompensation", { percent: Math.round(widthRatio * 100) })}
             </label>
             <div className="flex gap-2 items-center">
               <input
@@ -1636,13 +1637,13 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                 onClick={() => { setWidthRatio(1.0); setMatchedPreview(null); setActualSize(null); }}
                 className="text-[10px] text-blue-500 hover:text-blue-700 shrink-0"
               >
-                重置
+                {t("import.image.reset")}
               </button>
             </div>
-            <p className="text-[10px] text-gray-400 mt-0.5">向左拖动可让画面变窄，补偿像素化后视觉变宽的效果</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">{t("import.image.widthHelp")}</p>
             {widthRatio < 1.0 && (
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] text-gray-500">扩展方向:</span>
+                <span className="text-[10px] text-gray-500">{t("import.image.expandDirection")}</span>
                 {(["center", "left", "right"] as const).map((d) => (
                   <label key={d} className="flex items-center gap-0.5 text-[10px]">
                     <input
@@ -1652,7 +1653,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                       onChange={() => { setWidthExpand(d); setMatchedPreview(null); setActualSize(null); }}
                       className="w-3 h-3"
                     />
-                    {{ center: "两侧", left: "左侧", right: "右侧" }[d]}
+                    {{ center: t("import.image.bothSides"), left: t("import.image.left"), right: t("import.image.right") }[d]}
                   </label>
                 ))}
               </div>
@@ -1666,21 +1667,21 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
               disabled={!filePath || isProcessing}
               className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 disabled:opacity-40"
             >
-              {isProcessing ? "处理中..." : "预览"}
+              {isProcessing ? t("import.image.processing") : t("import.image.preview")}
             </button>
             <button
               onClick={handleCompare}
               disabled={!filePath || isProcessing}
               className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-40"
             >
-              {isProcessing ? "处理中..." : "对比多种组合"}
+              {isProcessing ? t("import.image.processing") : t("import.image.compare")}
             </button>
             <button
               onClick={handleConfirm}
               disabled={!matchedPreview}
               className="px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-40"
             >
-              确认导入
+              {t("import.image.confirm")}
             </button>
           </div>
 
@@ -1691,7 +1692,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   re-runs the compare automatically (see debounced effect). Does NOT clear
                   actualSize, otherwise this whole block would unmount mid-adjust. */}
               <div className="flex items-center gap-2 mb-2">
-                <label className="text-[10px] text-gray-500 whitespace-nowrap">最长尺寸:</label>
+                <label className="text-[10px] text-gray-500 whitespace-nowrap">{t("import.image.longest")}</label>
                 <input
                   type="range"
                   min={8}
@@ -1711,12 +1712,12 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
                   data-testid="compare-maxdim-number"
                 />
                 {isProcessing && (
-                  <span className="text-[10px] text-gray-400 whitespace-nowrap">更新中…</span>
+                  <span className="text-[10px] text-gray-400 whitespace-nowrap">{t("import.image.updating")}</span>
                 )}
               </div>
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-[10px] text-gray-500">
-                  点击选择 ({actualSize.width}×{actualSize.height}):
+                  {t("import.image.clickSelect", { width: actualSize.width, height: actualSize.height })}
                 </p>
                 <div className="flex items-center gap-1 ml-auto">
                   <button
@@ -1789,7 +1790,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
             <div className="border rounded p-2 bg-gray-50">
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-[10px] text-gray-500">
-                  匹配结果 ({actualSize.width}×{actualSize.height}):
+                  {t("import.image.matchResult", { width: actualSize.width, height: actualSize.height })}
                 </p>
                 <div className="flex items-center gap-1 ml-auto">
                   <button
@@ -1839,11 +1840,11 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
         <div className="bg-white rounded-lg shadow-xl p-4 w-[480px] max-h-[70vh] flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-sm">
-              {pendingCalPoint.editingId ? "更改目标 MARD 色" : "选择目标 MARD 色"}
+              {t(pendingCalPoint.editingId ? "import.image.changeTargetTitle" : "import.image.chooseTarget")}
             </h3>
             <button
               onClick={() => setPendingCalPoint(null)}
-              aria-label="关闭"
+              aria-label={t("dialogs.close")}
               className="text-gray-400 hover:text-gray-600 text-lg leading-none"
             >
               ×
@@ -1851,7 +1852,7 @@ export function ImageImportDialog({ onClose, initialAsset, onInitialAssetRelease
           </div>
 
           <div className="flex items-center gap-3 text-xs">
-            <span className="text-gray-500">采样色:</span>
+            <span className="text-gray-500">{t("import.image.sampledColor")}</span>
             <div
               className="w-8 h-8 rounded border"
               style={{

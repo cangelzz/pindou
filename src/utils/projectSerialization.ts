@@ -1,4 +1,5 @@
 import type { ProjectFile, CanvasCell, BeadLayer } from "../types";
+import { canonicalizeDefaultLayer } from "../store/defaultLayerNames";
 
 /** A cell as it appears on disk: either the verbose v2 form `{colorIndex}` or
  *  the flat v3 form (`null | number`). */
@@ -66,13 +67,15 @@ export function normalizeProjectFromDisk(rawJson: string): ProjectFile {
     ? raw.layers.map((l: any, i: number): BeadLayer => {
         const data = expandGrid(l.data, `layers[${i}].data`);
         validateDimensions(data, `layers[${i}].data`);
-        return {
+        return canonicalizeDefaultLayer({
           id: String(l.id),
-          name: String(l.name ?? "图层"),
+          name: String(l.name ?? "Layer"),
           visible: l.visible !== false,
           opacity: typeof l.opacity === "number" ? l.opacity : 1,
+          defaultNameIndex: l.defaultNameIndex,
+          isDefaultName: l.isDefaultName,
           data,
-        };
+        }, i + 1);
       })
     : undefined;
 
@@ -109,10 +112,13 @@ export function serializeProjectToV3(project: ProjectFile): string {
     updatedAt: project.updatedAt,
   };
   if (project.layers) {
-    out.layers = project.layers.map((l) => ({
-      ...l,
-      data: collapseGrid(l.data),
-    }));
+    out.layers = project.layers.map((layer, index) => {
+      const { isDefaultName: _legacyMarker, ...l } = canonicalizeDefaultLayer(
+        layer as BeadLayer & { isDefaultName?: boolean },
+        index + 1,
+      );
+      return { ...l, data: collapseGrid(l.data) };
+    });
   }
   return JSON.stringify(out);
 }

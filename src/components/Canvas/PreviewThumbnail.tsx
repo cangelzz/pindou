@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveHex } from "../../utils/colorHelper";
+import { useTranslation } from "react-i18next";
 
 interface PreviewThumbnailProps {
   containerWidth: number;
@@ -8,6 +9,7 @@ interface PreviewThumbnailProps {
 }
 
 export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThumbnailProps) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasData = useEditorStore((s) => s.canvasData);
   const canvasSize = useEditorStore((s) => s.canvasSize);
@@ -190,16 +192,16 @@ export function PreviewThumbnail({ containerWidth, containerHeight }: PreviewThu
       <div
         className="flex items-center px-1.5 py-0.5 bg-gray-100 border-b text-[10px] text-gray-500 cursor-grab active:cursor-grabbing rounded-t hover:bg-gray-200"
         onMouseDown={handleDragStart}
-        title="拖动移动预览窗口"
+        title={t("preview.drag")}
       >
         <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
-          <button onClick={() => setThumbSize((s) => Math.max(80, s - 40))} className="px-1 hover:bg-gray-300 rounded" title="缩小">−</button>
-          <button onClick={() => setThumbSize((s) => Math.min(600, s + 40))} className="px-1 hover:bg-gray-300 rounded" title="放大">+</button>
-          <button onClick={() => setShowFull(!showFull)} className="px-1 hover:bg-gray-300 rounded" title={showFull ? "局部放大" : "全局缩略"}>
+          <button onClick={() => setThumbSize((s) => Math.max(80, s - 40))} className="px-1 hover:bg-gray-300 rounded" title={t("preview.zoomOut")}>−</button>
+          <button onClick={() => setThumbSize((s) => Math.min(600, s + 40))} className="px-1 hover:bg-gray-300 rounded" title={t("preview.zoomIn")}>+</button>
+          <button onClick={() => setShowFull(!showFull)} className="px-1 hover:bg-gray-300 rounded" title={showFull ? t("preview.local") : t("preview.full")}>
             {showFull ? "🔍" : "🗺️"}
           </button>
         </div>
-        <span className="flex-1 text-center pointer-events-none">⋮⋮ 预览 ⋮⋮</span>
+        <span className="flex-1 text-center pointer-events-none">⋮⋮ {t("preview.title")} ⋮⋮</span>
       </div>
       <canvas
         ref={canvasRef}

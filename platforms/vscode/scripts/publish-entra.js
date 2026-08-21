@@ -23,7 +23,7 @@ if (!token) {
 }
 
 console.log("Publishing to VS Code Marketplace...");
-execSync(`tfx extension publish --vsix ${vsix} --auth-type pat -t ${token}`, {
+execSync(`tfx extension publish --vsix ${vsix} --auth-type pat -t ${token} --no-wait-validation`, {
   stdio: "inherit",
 });
 

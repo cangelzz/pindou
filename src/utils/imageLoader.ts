@@ -4,6 +4,17 @@
  * browser); Tauri path doesn't need this (Rust does its own decoding).
  */
 
+export type ImageLoadErrorCode = "invalid-file" | "read-failed" | "decode-failed" | "canvas-unavailable";
+
+export class ImageLoadError extends Error {
+  readonly cause?: unknown;
+  constructor(readonly code: ImageLoadErrorCode, cause?: unknown) { super(code); this.name = "ImageLoadError"; this.cause = cause; }
+}
+
+export function imageLoadErrorKey(error: unknown): `import.image.errors.${ImageLoadErrorCode | "unknown"}` {
+  return `import.image.errors.${error instanceof ImageLoadError ? error.code : "unknown"}`;
+}
+
 export interface LoadedImage {
   /** RGBA, length = width * height * 4 */
   data: Uint8ClampedArray;
@@ -22,20 +33,24 @@ export async function loadImageData(
   path: string,
   adapter: ReadFileAdapter,
 ): Promise<LoadedImage> {
-  const base64 = await adapter.readFileBase64(path);
-  const rawBytes = base64ToUint8Array(base64);
+  let base64: string;
+  try { base64 = await adapter.readFileBase64(path); }
+  catch (cause) { throw new ImageLoadError("read-failed", cause); }
+  let rawBytes: Uint8Array;
+  try { rawBytes = base64ToUint8Array(base64); }
+  catch (cause) { throw new ImageLoadError("invalid-file", cause); }
   const mediaType = detectMediaType(path);
 
   const dataUrl = `data:${mediaType};base64,${base64}`;
   const img = await loadImage(dataUrl);
   const { width, height } = img;
   if (width === 0 || height === 0) {
-    throw new Error("Image decoded to 0×0");
+    throw new ImageLoadError("decode-failed");
   }
 
   const canvas = makeCanvas(width, height);
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Failed to get 2d context");
+  if (!ctx) throw new ImageLoadError("canvas-unavailable");
   ctx.drawImage(img, 0, 0);
   const imageData = ctx.getImageData(0, 0, width, height);
 
@@ -67,7 +82,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to decode image at ${src.slice(0, 64)}…`));
+    img.onerror = () => reject(new ImageLoadError("decode-failed"));
     img.src = src;
   });
 }

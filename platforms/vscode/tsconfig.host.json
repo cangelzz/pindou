@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "src",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/extension.ts",
+    "src/newProjectCommand.ts",
+    "src/uiPlatformHost.ts"
+  ],
+  "exclude": ["node_modules", "dist", "webview", "src/vscodeAdapter.ts", "src/vscodeServices.ts"]
+}

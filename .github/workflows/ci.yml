@@ -38,6 +38,8 @@ jobs:
         run: cd platforms/vscode && npm ci
       - name: Build VS Code extension
         run: cd platforms/vscode && npm run build
+      - name: Run VS Code adapter unit tests
+        run: cd platforms/vscode && npm run test:unit
       - name: Install Playwright browsers
         run: cd platforms/vscode && npx playwright install --with-deps chromium
       - name: Run VS Code webview tests
@@ -75,6 +77,10 @@ jobs:
         run: npm run ext:test:contract
       - name: Run extension end-to-end tests
         run: xvfb-run -a npm run ext:test:e2e
+      - name: Test and validate committed store screenshots
+        run: npm run test:screenshots
+      - name: Check committed store screenshots are current
+        run: npm run ext:screenshots:check
       - name: Package Chrome and Edge extensions
         run: npm run ext:package
       - uses: actions/upload-artifact@v4

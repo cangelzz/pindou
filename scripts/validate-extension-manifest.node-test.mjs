@@ -9,10 +9,11 @@ import { ZipArchive } from "archiver";
 
 import { validateChromeVersion, validateDirectory, validateManifest, validateOverlay, validateZip, validateZipEntries } from "./validate-extension-manifest.mjs";
 import { packageExtension, publishArtifact } from "./package-extension.mjs";
+import { readExtensionVersion } from "./extension-version.mjs";
 import { computeVersion, readBaseVersion } from "./version.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const expectedVersion = computeVersion({ repoRoot });
+const expectedVersion = readExtensionVersion({ packagePath: join(repoRoot, "platforms/vscode/package.json") });
 
 function validManifest(version = expectedVersion) {
   return {
@@ -35,14 +36,17 @@ const localeMessages = {
   en: {
     extensionName: { message: "PindouVerse" },
     extensionShortName: { message: "PindouVerse" },
+    contextMenuConvertImage: { message: "Convert with PindouVerse" },
   },
   zh_CN: {
     extensionName: { message: "PindouVerse - 拼豆宇宙" },
     extensionShortName: { message: "PindouVerse" },
+    contextMenuConvertImage: { message: "在 PindouVerse 中转换" },
   },
   zh_TW: {
     extensionName: { message: "PindouVerse - 拼豆宇宙" },
     extensionShortName: { message: "PindouVerse" },
+    contextMenuConvertImage: { message: "在 PindouVerse 中转换" },
   },
 };
 
@@ -109,6 +113,35 @@ test("computes project versions through git without invoking bash", () => {
   assert.deepEqual(calls, [["git", ["rev-parse", "v3.7.0"]], ["git", ["rev-list", "HEAD", "--count"]]]);
 });
 
+test("reads the extension product version from the VS Code package", () => {
+  const calls = [];
+  assert.equal(readExtensionVersion({
+    packagePath: "C:\\repo with spaces\\platforms\\vscode\\package.json",
+    readFile: (path) => {
+      calls.push(path);
+      return JSON.stringify({ version: "1.4.0" });
+    },
+  }), "1.4.0");
+  assert.deepEqual(calls, ["C:\\repo with spaces\\platforms\\vscode\\package.json"]);
+});
+
+test("extension versions require exactly three bounded non-zero integers", () => {
+  for (const version of [
+    "0.0.0", "1", "1.2", "1.2.3.4", "01.2.3", "1.02.3", "1.2.03",
+    "1.2.3-beta.1", "1.2.65536", "65536.1.1", "1.-2.3",
+  ]) {
+    assert.throws(() => readExtensionVersion({ readFile: () => JSON.stringify({ version }) }), /version/i);
+  }
+  assert.equal(readExtensionVersion({ readFile: () => '{"version":"65535.65535.65535"}' }), "65535.65535.65535");
+  assert.equal(readExtensionVersion({ readFile: () => '{"version":"1.4.0"}' }), "1.4.0");
+});
+
+test("extension version reader rejects malformed package metadata", () => {
+  for (const contents of ["not json", "{}", '{"version": 140}']) {
+    assert.throws(() => readExtensionVersion({ readFile: () => contents }), /JSON|version/i);
+  }
+});
+
 test("store overlays require exactly one non-empty description", () => {
   for (const overlay of [{}, { description: "" }, { description: 1 }, { name: "Brand", description: "Desc" }]) {
     assert.throws(() => validateOverlay(overlay), /name|description|non-empty|string/i);
@@ -158,6 +191,16 @@ for (const field of ["name", "short_name", "permissions", "host_permissions", "b
 test("store overlays may only contain description", () => {
   assert.doesNotThrow(() => validateOverlay({ description: "Description" }));
   assert.throws(() => validateOverlay({ description: "Description", version: "1.2.3" }), /version/);
+});
+
+test("committed browser manifest sources keep the neutral base and versionless overlays", () => {
+  const base = JSON.parse(readFileSync(join(repoRoot, "platforms/extension/manifest.base.json"), "utf8"));
+  assert.equal(base.version, "0.0.0");
+  for (const brand of ["chrome", "edge"]) {
+    const overlay = JSON.parse(readFileSync(join(repoRoot, `platforms/extension/store/${brand}.json`), "utf8"));
+    assert.equal(Object.hasOwn(overlay, "version"), false);
+    validateOverlay(overlay);
+  }
 });
 
 test("directory validation requires exact localized messages", () => {
@@ -250,6 +293,7 @@ test("packages deterministic root-level ZIPs and validates their contents", asyn
   const artifacts = mkdtempSync(join(tmpdir(), "pindou-artifacts-"));
   try {
     const first = await packageExtension({ brand: "chrome", distDir: dist, artifactsDir: artifacts, version: expectedVersion });
+    assert.equal(first, join(artifacts, `pindouverse-chrome-${expectedVersion}.zip`));
     const firstHash = createHash("sha256").update(readFileSync(first)).digest("hex");
     const second = await packageExtension({ brand: "chrome", distDir: dist, artifactsDir: artifacts, version: expectedVersion });
     const secondHash = createHash("sha256").update(readFileSync(second)).digest("hex");

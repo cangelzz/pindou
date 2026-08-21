@@ -77,3 +77,10 @@ export async function callStore<T>(page: Page, action: string, args: unknown[] =
 export async function getStore<T>(page: Page, keys: string[]): Promise<T> {
   return page.evaluate((keys) => (globalThis as any).__pindouExtensionTest.getStore(keys), keys);
 }
+
+export async function setUiLanguage(page: Page, language: "en" | "zh-CN"): Promise<void> {
+  await page.evaluate(async (value) => chrome.storage.local.set({ "pindou.uiLanguage": value }), language);
+  await page.reload();
+  await page.getByTestId("top-menu").waitFor();
+  await page.locator("html").waitFor();
+}

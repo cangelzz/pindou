@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/editorStore";
 import { ColorAdjustPanel } from "../ColorAdjust/ColorAdjustPanel";
 import { IDENTITY_ADJUSTMENTS, type ColorAdjustments } from "../../utils/colorAdjust";
@@ -10,6 +11,7 @@ interface Props {
 const CARD_W = 288; // w-72
 
 export function SelectionColorAdjustDialog({ onClose }: Props) {
+  const { t } = useTranslation();
   const begin = useEditorStore((s) => s.beginSelectionAdjust);
   const update = useEditorStore((s) => s.updateSelectionAdjustPreview);
   const commit = useEditorStore((s) => s.commitSelectionAdjust);
@@ -78,28 +80,28 @@ export function SelectionColorAdjustDialog({ onClose }: Props) {
           className="text-sm font-semibold px-4 py-2 border-b cursor-move select-none"
           onMouseDown={onTitleDown}
         >
-          颜色调整
+          {t("selection.adjust.title")}
         </h3>
         <div className="p-4">
           <ColorAdjustPanel value={adj} onChange={setAdj} />
           <div className="flex items-center gap-2 mt-3 text-xs">
-            <span className="text-gray-700">吸附范围</span>
+            <span className="text-gray-700">{t("selection.adjust.snapRange")}</span>
             <button
               className={`px-2 py-0.5 rounded border ${snapRange === "all" ? "bg-blue-600 text-white" : ""}`}
               onClick={() => setSnapRange("all")}
             >
-              全色板
+              {t("selection.adjust.all")}
             </button>
             <button
               className={`px-2 py-0.5 rounded border ${snapRange === "used" ? "bg-blue-600 text-white" : ""}`}
               onClick={() => setSnapRange("used")}
             >
-              仅已用色
+              {t("selection.adjust.used")}
             </button>
           </div>
           <div className="flex justify-end gap-2 mt-4">
-            <button className="px-3 py-1 text-xs rounded border" onClick={close}>取消</button>
-            <button className="px-3 py-1 text-xs rounded bg-blue-600 text-white" onClick={apply}>应用</button>
+            <button className="px-3 py-1 text-xs rounded border" onClick={close}>{t("dialogs.cancel")}</button>
+            <button className="px-3 py-1 text-xs rounded bg-blue-600 text-white" onClick={apply}>{t("selection.adjust.apply")}</button>
           </div>
         </div>
       </div>

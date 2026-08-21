@@ -89,6 +89,7 @@ mod tests {
             edge_padding: Some(edge_padding),
             watermark: None,
             legend_options: None,
+            labels: Default::default(),
         };
         export_image(request).expect("Export failed");
         assert!(export_path.exists(), "Exported file should exist");
@@ -238,6 +239,7 @@ mod tests {
             edge_padding: Some(0),
             watermark: None,
             legend_options: None,
+            labels: Default::default(),
         };
         export_image(request).expect("Export failed");
 
@@ -301,6 +303,7 @@ mod tests {
             edge_padding: Some(0),
             watermark: None,
             legend_options: None,
+            labels: Default::default(),
         };
         export_image(request).expect("Export failed");
 
@@ -355,6 +358,7 @@ mod tests {
             edge_padding: Some(0),
             watermark: None,
             legend_options: None,
+            labels: Default::default(),
         };
         crate::commands::image_export::export_image(request).expect("Export failed");
 

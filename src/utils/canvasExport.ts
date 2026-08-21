@@ -66,7 +66,7 @@ export async function renderBlueprintBlob(
   assets: CanvasExportAssets = {},
   dependencies?: CanvasExportDependencies,
 ): Promise<Blob> {
-  const { width, height, cell_size, cells, format, start_x, start_y, edge_padding, watermark, legend_options } = request;
+  const { width, height, cell_size, cells, format, start_x, start_y, edge_padding, watermark, legend_options, labels } = request;
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
     throw new Error(`Invalid canvas dimensions: ${width}x${height}`);
   }
@@ -80,7 +80,10 @@ export async function renderBlueprintBlob(
   const legend = computeLegendLayout(cells, width, cell_size, {
     includeByCount: legend_options?.include_by_count !== false,
     includeByName: legend_options?.include_by_name === true,
-  }, dependencies?.createCanvas);
+  }, dependencies?.createCanvas, {
+    byCount: labels.legendByCount,
+    byCode: labels.legendByCode,
+  });
   const imgH = Math.ceil(headerH + gridAreaH + legend.totalHeight);
   const { canvas, ctx } = prepareCanvas(imgW, imgH, dependencies);
 

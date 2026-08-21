@@ -80,6 +80,10 @@ test("actual Browser and VS Code adapters export identical decorated PNG bytes",
       start_x: 7, start_y: 9, edge_padding: 0,
       watermark: { show_header: true, app_description: "Contract Title - Author", watermark_lines: ["Author", "PindouVerse"] },
       legend_options: { include_by_count: true, include_by_name: true },
+      labels: {
+        legendByCount: "By count ({{colors}} colors, {{beads}} beads)",
+        legendByCode: "By code ({{colors}} colors)",
+      },
     });
   });
   const result = await captured(page);

@@ -2,28 +2,30 @@ import { useState, useEffect, useRef } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import type { EditorTool } from "../../types";
 import { getPlatformServices } from "../../platform/serviceRegistry";
+import { useTranslation } from "react-i18next";
 
-const tools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
-  { id: "select", label: "选区", icon: "⬚", shortcut: "S" },
-  { id: "wand", label: "魔棒", icon: "✦", shortcut: "W" },
-  { id: "pen", label: "画笔", icon: "✏️", shortcut: "P" },
-  { id: "fill", label: "填充", icon: "🪣", shortcut: "F" },
-  { id: "eyedropper", label: "取色", icon: "💧", shortcut: "I" },
-  { id: "pan", label: "平移", icon: "✋", shortcut: "Space" },
+const tools: { id: EditorTool; labelKey: string; icon: string; shortcut: string }[] = [
+  { id: "select", labelKey: "tools.select", icon: "⬚", shortcut: "S" },
+  { id: "wand", labelKey: "tools.wand", icon: "✦", shortcut: "W" },
+  { id: "pen", labelKey: "tools.pen", icon: "✏️", shortcut: "P" },
+  { id: "fill", labelKey: "tools.fill", icon: "🪣", shortcut: "F" },
+  { id: "eyedropper", labelKey: "tools.eyedropper", icon: "💧", shortcut: "I" },
+  { id: "pan", labelKey: "tools.pan", icon: "✋", shortcut: "Space" },
 ];
 
-const shapeTools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
-  { id: "line", label: "直线", icon: "⟋", shortcut: "L" },
-  { id: "rect", label: "矩形", icon: "⬜", shortcut: "R" },
-  { id: "circle", label: "圆形", icon: "⭕", shortcut: "C" },
+const shapeTools: { id: EditorTool; labelKey: string; icon: string; shortcut: string }[] = [
+  { id: "line", labelKey: "tools.line", icon: "⟋", shortcut: "L" },
+  { id: "rect", labelKey: "tools.rect", icon: "⬜", shortcut: "R" },
+  { id: "circle", labelKey: "tools.circle", icon: "⭕", shortcut: "C" },
 ];
 
-const eraserTools: { id: EditorTool; label: string; icon: string; shortcut: string }[] = [
-  { id: "eraser",     label: "单格擦除", icon: "🩹", shortcut: "E" },
-  { id: "eraserFill", label: "区域擦除", icon: "🧽", shortcut: "" },
+const eraserTools: { id: EditorTool; labelKey: string; icon: string; shortcut: string }[] = [
+  { id: "eraser", labelKey: "tools.eraserCell", icon: "🩹", shortcut: "E" },
+  { id: "eraserFill", labelKey: "tools.eraserFill", icon: "🧽", shortcut: "" },
 ];
 
 export function CanvasToolbar() {
+  const { t } = useTranslation();
   const currentTool = useEditorStore((s) => s.currentTool);
   const setTool = useEditorStore((s) => s.setTool);
   const lastEraserSubmode = useEditorStore((s) => s.lastEraserSubmode);
@@ -91,26 +93,26 @@ export function CanvasToolbar() {
         <button
           onClick={() => setShowShapeMenu(!showShapeMenu)}
           className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
-            ${shapeTools.some((t) => t.id === currentTool) ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title="形状工具"
+            ${shapeTools.some((tool) => tool.id === currentTool) ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title={t("tools.shape")}
         >
-          {shapeTools.find((t) => t.id === currentTool)?.icon || "📐"}
+          {shapeTools.find((tool) => tool.id === currentTool)?.icon || "📐"}
         </button>
         {showShapeMenu && (
           <div className="absolute left-full top-0 ml-1 bg-white border rounded shadow-lg flex flex-col gap-0.5 p-1 z-50">
-            {shapeTools.map((t) => (
+            {shapeTools.map((tool) => (
               <button
-                key={t.id}
+                key={tool.id}
                 onClick={() => {
-                  setTool(t.id);
+                  setTool(tool.id);
                   setShowShapeMenu(false);
                 }}
                 className={`w-20 h-8 rounded flex items-center gap-1.5 px-2 text-xs transition-colors
-                  ${currentTool === t.id ? "bg-blue-500 text-white" : "hover:bg-gray-100"}`}
-                title={`${t.label} (${t.shortcut})`}
+                  ${currentTool === tool.id ? "bg-blue-500 text-white" : "hover:bg-gray-100"}`}
+                title={`${t(tool.labelKey)} (${tool.shortcut})`}
               >
-                <span className="text-sm">{t.icon}</span>
-                <span>{t.label}</span>
+                <span className="text-sm">{tool.icon}</span>
+                <span>{t(tool.labelKey)}</span>
               </button>
             ))}
           </div>
@@ -118,23 +120,23 @@ export function CanvasToolbar() {
       </div>
 
       {/* Basic tools (first slice: select, wand, pen, fill). The select tool
-          anchors a floating "取消选区" button on its right while a selection
+          anchors a floating clear-selection button on its right while a selection
           exists — see below. */}
-      {tools.slice(0, 4).map((t) => (
-        <div key={t.id} className="relative">
+      {tools.slice(0, 4).map((tool) => (
+        <div key={tool.id} className="relative">
           <button
-            onClick={() => setTool(t.id)}
+            onClick={() => setTool(tool.id)}
             className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
-              ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
-            title={`${t.label} (${t.shortcut})`}
+              ${currentTool === tool.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+            title={`${t(tool.labelKey)} (${tool.shortcut})`}
           >
-            {t.icon}
+            {tool.icon}
           </button>
-          {t.id === "select" && selection && (
+          {tool.id === "select" && selection && (
             <button
               onClick={() => clearSelection()}
-              aria-label="取消选区"
-              title="取消选区"
+              aria-label={t("tools.clearSelection")}
+              title={t("tools.clearSelection")}
               className="absolute left-full top-1/2 -translate-y-1/2 ml-1 z-50 w-7 h-7 rounded-full bg-white border border-gray-300 shadow-md flex items-center justify-center text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
             >
               ⊘
@@ -149,25 +151,25 @@ export function CanvasToolbar() {
           onClick={() => setShowEraserMenu(!showEraserMenu)}
           className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
             ${currentTool === "eraser" || currentTool === "eraserFill" ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title="橡皮擦 (E)"
+          title={`${t("tools.eraser")} (E)`}
         >
-          {eraserTools.find((t) => t.id === lastEraserSubmode)?.icon || "🩹"}
+          {eraserTools.find((tool) => tool.id === lastEraserSubmode)?.icon || "🩹"}
         </button>
         {showEraserMenu && (
           <div className="absolute left-full top-0 ml-1 bg-white border rounded shadow-lg flex flex-col gap-0.5 p-1 z-50">
-            {eraserTools.map((t) => (
+            {eraserTools.map((tool) => (
               <button
-                key={t.id}
+                key={tool.id}
                 onClick={() => {
-                  setTool(t.id);
+                  setTool(tool.id);
                   setShowEraserMenu(false);
                 }}
                 className={`w-20 h-8 rounded flex items-center gap-1.5 px-2 text-xs transition-colors
-                  ${currentTool === t.id ? "bg-blue-500 text-white" : "hover:bg-gray-100"}`}
-                title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
+                  ${currentTool === tool.id ? "bg-blue-500 text-white" : "hover:bg-gray-100"}`}
+                title={tool.shortcut ? `${t(tool.labelKey)} (${tool.shortcut})` : t(tool.labelKey)}
               >
-                <span className="text-sm">{t.icon}</span>
-                <span>{t.label}</span>
+                <span className="text-sm">{tool.icon}</span>
+                <span>{t(tool.labelKey)}</span>
               </button>
             ))}
           </div>
@@ -175,15 +177,15 @@ export function CanvasToolbar() {
       </div>
 
       {/* Basic tools (second slice: eyedropper, pan) */}
-      {tools.slice(4).map((t) => (
+      {tools.slice(4).map((tool) => (
         <button
-          key={t.id}
-          onClick={() => setTool(t.id)}
+          key={tool.id}
+          onClick={() => setTool(tool.id)}
           className={`w-9 h-9 rounded flex items-center justify-center text-lg transition-colors
-            ${currentTool === t.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title={`${t.label} (${t.shortcut})`}
+            ${currentTool === tool.id ? "bg-blue-500 text-white shadow" : "hover:bg-gray-200"}`}
+          title={`${t(tool.labelKey)} (${tool.shortcut})`}
         >
-          {t.icon}
+          {tool.icon}
         </button>
       ))}
 
@@ -194,7 +196,7 @@ export function CanvasToolbar() {
         onClick={undo}
         disabled={undoStack.length === 0}
         className="w-9 h-9 rounded flex items-center justify-center text-lg hover:bg-gray-200 disabled:opacity-30"
-        title="撤销 (Ctrl+Z)"
+        title={`${t("tools.undo")} (Ctrl+Z)`}
       >
         ↩
       </button>
@@ -202,7 +204,7 @@ export function CanvasToolbar() {
         onClick={redo}
         disabled={redoStack.length === 0}
         className="w-9 h-9 rounded flex items-center justify-center text-lg hover:bg-gray-200 disabled:opacity-30"
-        title="重做 (Ctrl+Y)"
+        title={`${t("tools.redo")} (Ctrl+Y)`}
       >
         ↪
       </button>
@@ -213,7 +215,7 @@ export function CanvasToolbar() {
       <button
         onClick={() => setZoom(zoom * 1.25)}
         className="w-9 h-9 rounded flex items-center justify-center text-lg hover:bg-gray-200"
-        title="放大"
+        title={t("tools.zoomIn")}
       >
         +
       </button>
@@ -221,14 +223,14 @@ export function CanvasToolbar() {
       <button
         onClick={() => setZoom(zoom / 1.25)}
         className="w-9 h-9 rounded flex items-center justify-center text-lg hover:bg-gray-200"
-        title="缩小"
+        title={t("tools.zoomOut")}
       >
         −
       </button>
       <button
         onClick={() => setZoom(1)}
         className="w-9 h-7 rounded flex items-center justify-center text-xs hover:bg-gray-200"
-        title="重置缩放"
+        title={t("tools.resetZoom")}
       >
         1:1
       </button>
@@ -241,7 +243,7 @@ export function CanvasToolbar() {
           }
         }}
         className="w-9 h-7 rounded flex items-center justify-center text-[9px] hover:bg-gray-200"
-        title="适应窗口"
+        title={t("tools.fitWindow")}
       >
         ⊞
       </button>
@@ -253,7 +255,7 @@ export function CanvasToolbar() {
         onClick={() => setBlueprintMode(!blueprintMode)}
         className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
           ${blueprintMode ? "bg-orange-500 text-white shadow" : "hover:bg-gray-200"}`}
-        title={blueprintMode ? "退出图纸模式" : "图纸模式"}
+        title={blueprintMode ? t("tools.exitBlueprint") : t("tools.blueprint")}
       >
         📋
       </button>
@@ -264,7 +266,7 @@ export function CanvasToolbar() {
           onClick={() => setBlueprintMirror(!blueprintMirror)}
           className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
             ${blueprintMirror ? "bg-purple-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title={blueprintMirror ? "退出镜像" : "镜像（背面视角）"}
+          title={blueprintMirror ? t("tools.exitMirror") : t("tools.mirror")}
         >
           🪞
         </button>
@@ -276,7 +278,7 @@ export function CanvasToolbar() {
           onClick={() => setGridFocusMode(!gridFocusMode)}
           className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
             ${gridFocusMode ? "bg-teal-500 text-white shadow" : "hover:bg-gray-200"}`}
-          title={gridFocusMode ? "退出网格聚焦" : "网格聚焦（双击/方向键选中5×5区域）"}
+          title={gridFocusMode ? t("tools.exitGridFocus") : t("tools.gridFocus")}
         >
           🔲
         </button>
@@ -288,7 +290,7 @@ export function CanvasToolbar() {
           onClick={() => setVoiceControlEnabled(!voiceControlEnabled)}
           className={`w-9 h-9 rounded flex items-center justify-center text-sm transition-colors
             ${voiceControlEnabled ? "bg-red-500 text-white shadow animate-pulse" : "hover:bg-gray-200"}`}
-          title={voiceControlEnabled ? "关闭语音控制" : "语音控制（说 上下左右 移动聚焦）"}
+          title={voiceControlEnabled ? t("tools.voiceOff") : t("tools.voice")}
         >
           🎤
         </button>
@@ -299,9 +301,9 @@ export function CanvasToolbar() {
         <div
           data-testid="ai-voice-status"
           className="w-9 h-7 rounded flex items-center justify-center text-[9px] bg-green-500 text-white shadow"
-          title={voiceEnhancement!.labels.enabled}
+          title={t("voice.enabled")}
         >
-          {voiceEnhancement!.labels.status}
+          {t("voice.status")}
         </div>
       )}
 

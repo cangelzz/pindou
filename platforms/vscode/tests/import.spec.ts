@@ -41,7 +41,7 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await clickButton(page, "选择文件");
 
     // The "原图: 32×32" label only appears once previewImage resolves
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
   });
 
   test("🔍 自动检测 button appears after preview (regression for 0.8.4)", async ({ page }) => {
@@ -55,7 +55,7 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await stageReply(page, "showOpenDialog", "/img.png");
     await stageReply(page, "readFile", { data: PNG_BASE64 });
     await clickButton(page, "选择文件");
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
 
     // After preview: auto-detect button shows up
     await expect(page.getByRole("button", { name: /自动检测/ })).toBeVisible();
@@ -69,14 +69,14 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await stageReply(page, "showOpenDialog", "/img.png");
     await stageReply(page, "readFile", { data: PNG_BASE64 });
     await clickButton(page, "选择文件");
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
 
     // Click 预览 — second instance of readFile is needed (importImage path)
     // but our adapter caches the decoded image so no second readFile fires
     await clickButton(page, /^预览$/);
 
     // "图片尺寸: 32×32" appears once color matching completes
-    await expect(page.getByText(/图片尺寸:\s*\d+×\d+/)).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText(/图片尺寸[：:]\s*\d+×\d+/)).toBeVisible({ timeout: 8_000 });
   });
 
   test("对比多种组合 button → 2 algorithm panels rendered", async ({ page }) => {
@@ -87,7 +87,7 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await stageReply(page, "showOpenDialog", "/img.png");
     await stageReply(page, "readFile", { data: PNG_BASE64 });
     await clickButton(page, "选择文件");
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
 
     await clickButton(page, "对比多种组合");
 
@@ -104,23 +104,44 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await stageReply(page, "showOpenDialog", "/img.png");
     await stageReply(page, "readFile", { data: PNG_BASE64 });
     await clickButton(page, "选择文件");
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
 
     await clickButton(page, "对比多种组合");
     await expect(page.getByRole("button", { name: /^RGB/ })).toBeVisible({ timeout: 10_000 });
 
     // Source is 32×32; default max dim 52 leaves it at 32×32 (no upscale).
-    await expect(page.getByText(/点击选择 \(32×32\)/)).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText(/点击选择[（(]32×32[）)]/)).toBeVisible({ timeout: 8_000 });
 
     // The compare-area max-dimension slider shares state with the controls above.
     // Dropping it below 32 must shrink the output and re-run the compare on its
     // own — without clicking 对比 again.
     await page.getByTestId("compare-maxdim-number").fill("16");
 
-    await expect(page.getByText(/点击选择 \(16×16\)/)).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText(/点击选择[（(]16×16[）)]/)).toBeVisible({ timeout: 8_000 });
     // Both algorithm panels are still present after the auto re-compare.
     await expect(page.getByRole("button", { name: /^RGB/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^CIELAB/ })).toBeVisible();
+  });
+
+  test("same image and settings produce identical results in English and Chinese", async ({ page }) => {
+    const runImport = async (language: "en" | "zh-CN") => {
+      await setupPage(page, { savedLanguage: language });
+      await loadProject(page);
+      await page.locator('[data-menu-id="import-image"]').click();
+      await stageReply(page, "showOpenDialog", "/img.png");
+      await stageReply(page, "readFile", { data: PNG_BASE64 });
+      await page.getByRole("button", { name: language === "en" ? "Choose File" : "选择文件" }).click();
+      await expect(page.getByText(language === "en" ? /Original:\s*32×32/ : /原图：\s*32×32/)).toBeVisible();
+      await page.getByRole("button", { name: language === "en" ? /^Preview$/ : /^预览$/ }).click();
+      await page.getByRole("button", { name: language === "en" ? "Confirm Import" : "确认导入" }).click();
+      return page.evaluate(() => {
+        const s = (window as any).__pindouStore.getState();
+        return { canvasData: s.canvasData, canvasSize: s.canvasSize, layers: s.layers.map(({ name: _name, ...layer }: any) => layer), gridConfig: s.gridConfig };
+      });
+    };
+    const english = await runImport("en");
+    const chinese = await runImport("zh-CN");
+    expect(chinese).toEqual(english);
   });
 
   test("确认导入 → loads matched data into editor", async ({ page }) => {
@@ -132,10 +153,10 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await stageReply(page, "showOpenDialog", "/img.png");
     await stageReply(page, "readFile", { data: PNG_BASE64 });
     await clickButton(page, "选择文件");
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
 
     await clickButton(page, /^预览$/);
-    await expect(page.getByText(/图片尺寸:\s*\d+×\d+/)).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText(/图片尺寸[：:]\s*\d+×\d+/)).toBeVisible({ timeout: 8_000 });
 
     await clickButton(page, "确认导入");
     // Dialog should close
@@ -176,7 +197,7 @@ test.describe("Image import (regression for 0.8.4)", () => {
     await stageReply(page, "showOpenDialog", "/img.png");
     await stageReply(page, "readFile", { data: PNG_BASE64 });
     await clickButton(page, "选择文件");
-    await expect(page.getByText(/原图:\s*32×32/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/原图[：:]\s*32×32/)).toBeVisible({ timeout: 5_000 });
 
     const cropCanvas = page.getByTestId("crop-canvas");
 

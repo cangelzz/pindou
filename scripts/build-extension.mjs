@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
 import { scanExtensionArtifacts } from "./assert-extension-no-ai.mjs";
+import { readExtensionVersion } from "./extension-version.mjs";
 import { validateDirectory, validateOverlay } from "./validate-extension-manifest.mjs";
-import { computeVersion } from "./version.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const extensionRoot = join(repoRoot, "platforms/extension");
@@ -13,8 +13,7 @@ const [brand = "chrome", buildKind] = process.argv.slice(2);
 assert.ok(brand === "chrome" || brand === "edge", "Usage: build-extension.mjs <chrome|edge> [test]");
 assert.ok(buildKind === undefined || buildKind === "test", "Usage: build-extension.mjs <chrome|edge> [test]");
 const testBuild = buildKind === "test";
-const version = computeVersion({ repoRoot });
-assert.match(version, /^(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){2}$/, "computed project version must be three integers");
+const version = readExtensionVersion({ packagePath: join(repoRoot, "platforms/vscode/package.json") });
 
 const staging = join(extensionRoot, `.dist-${brand}-${process.pid}`);
 const branded = join(extensionRoot, "dist", brand);

@@ -22,13 +22,20 @@ import { connectGitHubSession } from "./platform/githubSession";
 import { layerAccentColor } from "./utils/layerColors";
 import type { HistoryAction, HistoryEntry, CanvasData, CanvasSize } from "./types";
 import { createAutosaveScheduler } from "./utils/autosaveScheduler";
+import { autosaveErrorKey } from "./utils/autosaveStatus";
+import { getLayerDisplayName, normalizeDefaultLayerPromptName } from "./store/defaultLayerNames";
 import type { ImageImportAsset } from "./platform/imageImportService";
 import { WebImageImportErrorDialog } from "./components/Import/WebImageImportErrorDialog";
 import { ImageTaskScheduler } from "./platform/imageTaskScheduler";
 import { createImageTaskSchedulerLifecycle } from "./platform/imageTaskSchedulerLifecycle";
+import { LanguageSwitch } from "./components/Language/LanguageSwitch";
+import { useTranslation } from "react-i18next";
+import { i18n as sharedI18n } from "./i18n";
+import { blueprintImportErrorKey, type BlueprintImportStage } from "./utils/blueprintImportTS";
 
 /** Render a small color swatch (or hatched empty marker for null) */
 function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; overrides: ColorOverrideMap }) {
+  const { t } = useTranslation();
   if (colorIndex === null) {
     return (
       <span
@@ -39,7 +46,7 @@ function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; ove
           backgroundSize: "6px 6px",
           backgroundPosition: "0 0, 3px 3px",
         }}
-        title="空"
+        title={t("import.blueprint.empty")}
       />
     );
   }
@@ -55,8 +62,8 @@ function ColorSwatch({ colorIndex, overrides }: { colorIndex: number | null; ove
 }
 
 /** Render the inline summary of a history action (1-pixel: from→to + pos; many: count) */
-function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap) {
-  if (action.kind === "layers") return <span>图层快照</span>;
+function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap, t: ReturnType<typeof useTranslation>["t"]) {
+  if (action.kind === "layers") return <span>{t("history.layerSnapshot")}</span>;
   const { entries } = action;
   if (entries.length === 1) {
     const e = entries[0];
@@ -69,14 +76,14 @@ function renderActionSummary(action: HistoryAction, overrides: ColorOverrideMap)
       </span>
     );
   }
-  return <span>{entries.length} 个像素变更</span>;
+  return <span>{t("history.pixelChanges", { count: entries.length })}</span>;
 }
 
 /** Verbose tooltip text describing an action */
-function describeAction(action: HistoryAction, overrides: ColorOverrideMap): string {
-  if (action.kind === "layers") return "图层快照（结构性操作）";
+function describeAction(action: HistoryAction, overrides: ColorOverrideMap, t: ReturnType<typeof useTranslation>["t"]): string {
+  if (action.kind === "layers") return t("history.layerDetail");
   const label = (idx: number | null) => {
-    if (idx === null) return "空";
+    if (idx === null) return t("import.blueprint.empty");
     const c = MARD_COLORS[idx];
     if (!c) return "?";
     const ov = overrides.get(idx);
@@ -86,7 +93,7 @@ function describeAction(action: HistoryAction, overrides: ColorOverrideMap): str
   const { entries } = action;
   if (entries.length <= 5) return entries.map(fmt).join("\n");
   const head = entries.slice(0, 5).map(fmt).join("\n");
-  return `${head}\n... 共 ${entries.length} 个像素变更`;
+  return `${head}\n${t("history.moreChanges", { count: entries.length })}`;
 }
 
 /** Extract hex color (#RRGGBB) from an rgba() string */
@@ -114,6 +121,7 @@ function hexToRgba(hex: string, alpha: number): string {
 export interface ImageTaskSource { subscribe(listener: (task: { id: string; createdAt: number }) => void): () => void }
 
 function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
+  const { t, i18n } = useTranslation();
   const [showImport, setShowImport] = useState(false);
   const [imageImportAsset, setImageImportAsset] = useState<ImageImportAsset>();
   const [showWebImageError, setShowWebImageError] = useState(false);
@@ -177,7 +185,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
     detectedBBox: { left: number; top: number; right: number; bottom: number };
     hasMetadata: boolean;
   } | null>(null);
-  const [blueprintProgress, setBlueprintProgress] = useState("");
+  const [blueprintProgress, setBlueprintProgress] = useState<BlueprintImportStage>("loading-image");
   const [blueprintProgressFraction, setBlueprintProgressFraction] = useState(0);
   const [blueprintAbort, setBlueprintAbort] = useState<AbortController | null>(null);
   const [blueprintResult, setBlueprintResult] = useState<BlueprintImportResult | null>(null);
@@ -210,9 +218,10 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
   const projectGeneration = useEditorStore((s) => s.projectGeneration);
   const projectInfo = useEditorStore((s) => s.projectInfo);
   const baselineCanvasData = useEditorStore((s) => s.baselineCanvasData);
-  const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
+  const saveStatus = useEditorStore((s) => s.saveStatus?.revision === s.contentRevision ? s.saveStatus : null);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
   const setAutoSaveEnabled = useEditorStore((s) => s.setAutoSaveEnabled);
+  const createAutosaveTicket = useEditorStore((s) => s.createAutosaveTicket);
   const reportAutosaveResult = useEditorStore((s) => s.reportAutosaveResult);
   const voiceEnhancementEnabled = useEditorStore((s) => s.voiceEnhancementEnabled);
   const setVoiceEnhancementEnabled = useEditorStore((s) => s.setVoiceEnhancementEnabled);
@@ -234,6 +243,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
   const clearRefImage = useEditorStore((s) => s.clearRefImage);
   const layers = useEditorStore((s) => s.layers);
   const activeLayerId = useEditorStore((s) => s.activeLayerId);
+  const nextDefaultLayerNameIndex = useEditorStore((s) => s.nextDefaultLayerNameIndex);
   const addLayer = useEditorStore((s) => s.addLayer);
   const removeLayer = useEditorStore((s) => s.removeLayer);
   const setActiveLayer = useEditorStore((s) => s.setActiveLayer);
@@ -298,9 +308,9 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
     }
     const result = await current.openProject();
     openRequestRef.current = null;
-    if (!result.ok && result.code !== "cancelled") await appAlert("打开项目失败，请重试");
-    else if (!result.ok && result.message) await appAlert(result.message);
-  }, []);
+    if (!result.ok && result.code === "stale") await appAlert(t("errors.openStale"));
+    else if (!result.ok && result.code !== "cancelled") await appAlert(t("errors.openProject"));
+  }, [t]);
 
   const requestOpenProject = useCallback(() => {
     if (showOpenWarning || openRequestRef.current) return;
@@ -330,7 +340,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
     const intent = { projectGeneration: initial.projectGeneration, contentRevision: initial.contentRevision };
     void services.recovery.loadAutosave().then(async (result) => {
       if (cancelled) return;
-      if (!result.ok) { await appAlert("自动备份读取失败，已继续打开空白项目"); return; }
+      if (!result.ok) { await appAlert(sharedI18n.t("recovery.loadError")); return; }
       const current = useEditorStore.getState();
       if (current.projectGeneration !== intent.projectGeneration || current.contentRevision !== intent.contentRevision || current.isDirty) return;
       if (result.value) {
@@ -344,27 +354,27 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
 
   const dismissAutosaveRecovery = useCallback(async () => {
     const result = await services.recovery.clearAutosave?.();
-    if (result && !result.ok) { await appAlert("删除自动备份失败，请重试"); return; }
+    if (result && !result.ok) { await appAlert(t("recovery.deleteError")); return; }
     autosaveRecoveryStateRef.current = null;
     setPendingAutosave(null);
     setShowAutosaveRecovery(false);
-  }, [services.recovery]);
+  }, [services.recovery, t]);
 
   const applyAutosaveRecovery = useCallback(async () => {
     if (!pendingAutosave) return;
     const intent = autosaveRecoveryStateRef.current;
     const current = useEditorStore.getState();
     if (!intent || current.projectGeneration !== intent.projectGeneration || current.contentRevision !== intent.contentRevision || current.isDirty) {
-      await appAlert("项目已发生修改，自动备份未恢复");
+      await appAlert(t("recovery.stale"));
       return;
     }
     current.restoreAutosave(pendingAutosave);
     const result = await services.recovery.clearAutosave?.();
-    if (result && !result.ok) await appAlert("内容已恢复，但删除自动备份失败，下次启动可能再次提示");
+    if (result && !result.ok) await appAlert(t("recovery.clearError"));
     autosaveRecoveryStateRef.current = null;
     setPendingAutosave(null);
     setShowAutosaveRecovery(false);
-  }, [pendingAutosave, services.recovery]);
+  }, [pendingAutosave, services.recovery, t]);
 
   useEffect(() => {
     if (!showAutosaveRecovery) return;
@@ -419,20 +429,28 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
 
   // Auto-save every 60 seconds
   const autoSaveRef = useRef(autoSave);
+  const createAutosaveTicketRef = useRef(createAutosaveTicket);
   const reportAutosaveResultRef = useRef(reportAutosaveResult);
   autoSaveRef.current = autoSave;
+  createAutosaveTicketRef.current = createAutosaveTicket;
   reportAutosaveResultRef.current = reportAutosaveResult;
   useEffect(() => {
     if (!autoSaveEnabled) return;
-    let reportedError: string | null = null;
+    let reportedErrorKey: string | null = null;
+    let ticket = createAutosaveTicketRef.current();
     const scheduler = createAutosaveScheduler(
-      () => autoSaveRef.current(),
+      () => { ticket = createAutosaveTicketRef.current(); return autoSaveRef.current(); },
       async (result) => {
-        reportAutosaveResultRef.current(result);
-        if (result.ok) { reportedError = null; return; }
-        if (result.code === "cancelled" || reportedError === result.code) return;
-        reportedError = result.code;
-        await appAlert("自动备份失败，将在稍后重试");
+        if (result.ok) {
+          if (result.value === "saved") reportAutosaveResultRef.current(result, ticket);
+          reportedErrorKey = null;
+          return;
+        }
+        if (!reportAutosaveResultRef.current(result, ticket)) return;
+        const errorKey = autosaveErrorKey(ticket, result.code);
+        if (result.code === "cancelled" || reportedErrorKey === errorKey) return;
+        reportedErrorKey = errorKey;
+        await appAlert(sharedI18n.t("recovery.saveError"));
       },
     );
     const id = setInterval(() => { void scheduler.tick(); }, 60_000);
@@ -466,7 +484,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
     let cancelled = false;
     void loadSnapshots().then(async (result) => {
       if (!cancelled && !result.ok && result.code !== "cancelled") {
-        await appAlert("加载快照列表失败，请重试");
+        await appAlert(sharedI18n.t("snapshots.loadListError"));
       }
     });
     return () => { cancelled = true; };
@@ -475,7 +493,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
 
   // Update window title with project name/path
   useEffect(() => {
-    const base = "拼豆宇宙 PindouVerse";
+    const base = "PindouVerse";
     const infoTitle = projectInfo?.title;
     const fileName = projectPath?.replace(/\\/g, "/").split("/").pop();
 
@@ -513,15 +531,22 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
     };
   }, [services.window]);
 
+  const performSave = useCallback(async (action: "save" | "saveAs") => {
+    const result = await (action === "save" ? saveProject() : saveProjectAs());
+    if (!result.ok && result.code !== "cancelled" && result.code !== "stale") {
+      await appAlert(t(action === "save" ? "errors.saveProject" : "errors.saveAs"));
+    }
+  }, [saveProject, saveProjectAs, t]);
+
   // Ctrl+S shortcut
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === "s") {
         e.preventDefault();
         if (e.shiftKey) {
-          saveProjectAs();
+          void performSave("saveAs");
         } else {
-          saveProject();
+          void performSave("save");
         }
       } else if (e.ctrlKey && e.key === "o") {
         e.preventDefault();
@@ -530,7 +555,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveProject, saveProjectAs, requestOpenProject]);
+  }, [performSave, requestOpenProject]);
 
   const handleStatColorActivate = (colorIndex: number) => {
     setSelectedColor(colorIndex);
@@ -541,26 +566,26 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
   return (
     <div className="flex flex-col h-screen bg-white text-gray-800">
       {/* Top menu bar: shared by every platform; IDs are the cross-platform contract. */}
-      <div data-testid="top-menu" className="flex items-center gap-1 px-2 py-1 bg-gray-100 border-b text-xs select-none">
-        <span className="font-bold text-sm mr-2">🎨 拼豆宇宙</span>
-        <button data-menu-id="new" onClick={requestNewCanvas} className="px-2 py-1 rounded hover:bg-gray-200">新建</button>
-        <button data-menu-id="resize" onClick={() => { setResizeW(canvasSize.width); setResizeH(canvasSize.height); setResizeAnchorRow(0); setResizeAnchorCol(0); setShowResize(true); }} className="px-2 py-1 rounded hover:bg-gray-200">调整画布</button>
-        <button data-menu-id="open" onClick={requestOpenProject} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+O">打开</button>
-        <button data-menu-id="save" onClick={() => saveProject()} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+S">保存</button>
-        <button data-menu-id="save-as" onClick={() => saveProjectAs()} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+Shift+S" aria-label="保存到新文件">另存为</button>
-        <button data-menu-id="project-info" onClick={() => setShowProjectInfo(true)} className="px-2 py-1 rounded hover:bg-gray-200">项目信息</button>
+      <div data-testid="top-menu" className="flex h-[49px] shrink-0 items-start gap-1 overflow-hidden px-2 py-1 bg-gray-100 border-b text-xs select-none">
+        <span data-testid="brand" className="font-bold text-sm mr-2">🎨 {t("brand")}</span>
+        <button data-menu-id="new" onClick={requestNewCanvas} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.newProject")}</button>
+        <button data-menu-id="resize" onClick={() => { setResizeW(canvasSize.width); setResizeH(canvasSize.height); setResizeAnchorRow(0); setResizeAnchorCol(0); setShowResize(true); }} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.resizeCanvas")}</button>
+        <button data-menu-id="open" onClick={requestOpenProject} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+O">{t("menu.openProject")}</button>
+        <button data-menu-id="save" onClick={() => { void performSave("save"); }} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+S">{t("menu.save")}</button>
+        <button data-menu-id="save-as" onClick={() => { void performSave("saveAs"); }} className="px-2 py-1 rounded hover:bg-gray-200" title="Ctrl+Shift+S" aria-label={t("menu.saveAsAria")}>{t("menu.saveAs")}</button>
+        <button data-menu-id="project-info" onClick={() => setShowProjectInfo(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.projectInfo")}</button>
         <div data-separator-id="files" className="border-l mx-1 h-4" />
-        <button data-menu-id="import-image" onClick={() => setShowImport(true)} className="px-2 py-1 rounded hover:bg-gray-200">导入图片</button>
+        <button data-menu-id="import-image" onClick={() => setShowImport(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.importImage")}</button>
         <button
           data-menu-id="import-blueprint"
           onClick={async () => {
             const adapter = getAdapter();
             const path = await adapter.showOpenDialog([
-              { name: "Image", extensions: ["png", "jpg", "jpeg", "bmp"] },
+              { name: t("import.image.fileFilter"), extensions: ["png", "jpg", "jpeg", "bmp"] },
             ]);
             if (!path) return;
             setBlueprintImporting(true);
-            setBlueprintProgress("正在分析图纸结构...");
+            setBlueprintProgress("loading-image");
             try {
               const [preview, dims] = await Promise.all([
                 adapter.previewImage(path),
@@ -576,29 +601,30 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
               });
             } catch (error) {
               setBlueprintImporting(false);
-              await appAlert(`图纸分析失败: ${error}`);
+              await appAlert(t(blueprintImportErrorKey(error)));
             }
           }}
           disabled={blueprintImporting}
           className={`px-2 py-1 rounded hover:bg-gray-200 inline-flex items-center gap-1 ${blueprintImporting ? "opacity-50" : ""}`}
         >
-          导入图纸 <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded font-semibold tracking-wider">BETA</span>
+          {t("menu.importBlueprint")} <span className="text-[8px] bg-amber-100 text-amber-700 px-1 rounded font-semibold tracking-wider">BETA</span>
         </button>
-        <button data-menu-id="export" onClick={() => setShowExport(true)} className="px-2 py-1 rounded hover:bg-gray-200">导出</button>
+        <button data-menu-id="export" onClick={() => setShowExport(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.export")}</button>
         <div data-separator-id="history" className="border-l mx-1 h-4" />
-        <button data-menu-id="history" onClick={() => setShowHistory(true)} className="px-2 py-1 rounded hover:bg-gray-200">历史记录</button>
-        {baselineCanvasData && <button data-menu-id="compare" onClick={() => setShowChangesCompare(true)} className="px-2 py-1 rounded hover:bg-gray-200">对比</button>}
-        {isLoggedIn && <button data-menu-id="cloud" onClick={() => setShowCloud(true)} className="px-2 py-1 rounded hover:bg-gray-200">云端</button>}
+        <button data-menu-id="history" onClick={() => setShowHistory(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.history")}</button>
+        {baselineCanvasData && <button data-menu-id="compare" onClick={() => setShowChangesCompare(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.compare")}</button>}
+        {isLoggedIn && <button data-menu-id="cloud" onClick={() => setShowCloud(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.cloud")}</button>}
         {isLoggedIn && cloudGistId && <span data-menu-id="cloud-status" data-cloud-status={cloudSyncStatus} className={`text-xs ${cloudSyncStatus === "remote-newer" ? "text-red-600" : cloudSyncStatus === "local-changes" ? "text-orange-500" : "text-green-600"}`}>{cloudSyncStatus === "synced" ? "☁️✓" : "☁️●"}</span>}
-        <button data-menu-id="version" onClick={() => setShowSnapshots(true)} className="px-2 py-1 rounded hover:bg-gray-200">版本</button>
+        <button data-menu-id="version" onClick={() => setShowSnapshots(true)} className="px-2 py-1 rounded hover:bg-gray-200">{t("menu.versions")}</button>
         <div className="flex-1" />
+        <LanguageSwitch services={services} />
         {isLoggedIn ? (
           <button data-menu-id="logged-in" onClick={async () => {
             const result = await services.github.logout();
-            if (!result.ok) await appAlert("登出失败，未能删除本地 GitHub 凭据，请重试");
-          }} className="px-2 py-1 rounded hover:bg-gray-200 text-green-600 text-xs" title="点击登出 GitHub">✓ GitHub 已登录</button>
+            if (!result.ok) await appAlert(sharedI18n.t("github.logoutError"));
+          }} className="px-2 py-1 rounded hover:bg-gray-200 text-green-600 text-xs" title={t("menu.logoutTitle")}>✓ {t("menu.loggedIn")}</button>
         ) : (
-          <button data-menu-id="login" disabled={services.github.availability === "unsupported" || services.github.configured === false} title={services.github.availability === "unsupported" ? "功能初始化中" : services.github.configured === false ? "未配置 GitHub Client ID" : "登录 GitHub"} onClick={async () => {
+          <button data-menu-id="login" disabled={services.github.availability === "unsupported" || services.github.configured === false} title={services.github.availability === "unsupported" ? t("github.initializing") : services.github.configured === false ? t("github.notConfigured") : t("github.loginTitle")} onClick={async () => {
             if (!services.github.startDeviceFlow || !services.github.pollDeviceFlow) {
               await services.github.login();
               return;
@@ -610,54 +636,58 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             setShowLoginDialog(true);
             setLoginDeviceInfo(null);
             setLoginPolling(false);
-            setLoginStatus("正在请求验证码...");
+            setLoginStatus(sharedI18n.t("github.requesting"));
             try {
               const started = await services.github.startDeviceFlow(controller.signal);
               if (!isCurrent()) return;
-              if (!started.ok) { setLoginStatus("请求失败"); return; }
+              if (!started.ok) { setLoginStatus(sharedI18n.t("github.requestFailed")); return; }
               setLoginDeviceInfo(started.value);
-              setLoginStatus("请在浏览器中输入验证码");
+              setLoginStatus(sharedI18n.t("github.enterCode"));
               const opened = await services.externalLinks.open(started.value.verification_uri);
               if (!isCurrent()) return;
-              if (!opened.ok) setLoginStatus("请复制上方链接到浏览器继续授权");
+              if (!opened.ok) setLoginStatus(sharedI18n.t("github.copyLink"));
               setLoginPolling(true);
               const result = await services.github.pollDeviceFlow(
                 started.value,
-                (status) => { if (isCurrent()) setLoginStatus(status); },
+                (status) => {
+                  if (!isCurrent()) return;
+                  const key = status === "authorization-pending" ? "waiting" : status === "slow-down" ? "slowDown" : status;
+                  setLoginStatus(sharedI18n.t(`github.status.${key}`));
+                },
                 controller.signal,
               );
               if (!isCurrent()) return;
               if (result.ok) setShowLoginDialog(false);
             } catch {
-              if (isCurrent()) setLoginStatus("请求失败");
+              if (isCurrent()) setLoginStatus(sharedI18n.t("github.requestFailed"));
             } finally {
               if (loginAbortRef.current === controller) {
                 loginAbortRef.current = null;
                 setLoginPolling(false);
               }
             }
-          }} className="px-2 py-1 rounded hover:bg-gray-200 disabled:opacity-50 text-gray-500 text-xs">登录 GitHub</button>
+          }} className="px-2 py-1 rounded hover:bg-gray-200 disabled:opacity-50 text-gray-500 text-xs">{t("menu.login")}</button>
         )}
         <button data-menu-id="feedback" data-feedback-environment={feedbackEnvironment} onClick={() => {
           const appVersion = (window as any).__pindouVersion || "dev";
           const canvas = `${canvasSize.width}x${canvasSize.height}`;
-          const body = encodeURIComponent(`**描述问题**
+          const body = encodeURIComponent(`**${t("feedback.description")}**
 
 
-**复现步骤**
+**${t("feedback.steps")}**
 1.
 2.
 3.
 
-**环境信息**
-- 版本: ${appVersion}
-- 平台: ${feedbackPlatform}
-- 运行环境: ${feedbackEnvironment}
-- 画布: ${canvas}
+**${t("feedback.environment")}**
+- ${t("feedback.version")}: ${appVersion}
+- ${t("feedback.platform")}: ${feedbackPlatform}
+- ${t("feedback.runtime")}: ${feedbackEnvironment}
+- ${t("feedback.canvas")}: ${canvas}
 `);
           const url = `https://github.com/cangelzz/pindouverse/issues/new?body=${body}`;
           void services.externalLinks.open(url).then((result) => { if (!result.ok) window.open(url, "_blank"); });
-        }} className="px-2 py-1 rounded hover:bg-gray-200 text-gray-400 text-xs">反馈</button>
+        }} className="px-2 py-1 rounded hover:bg-gray-200 text-gray-400 text-xs">{t("menu.feedback")}</button>
       </div>
 
       {/* Main content */}
@@ -678,6 +708,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             onMouseDown={handlePanelResizeStart}
           />
           <div
+            data-testid="right-panel"
             className="flex flex-col border-l bg-white min-h-0"
             style={{ width: rightPanelWidth }}
           >
@@ -691,7 +722,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              色板
+              {t("palette.title")}
             </button>
             <button
               onClick={() => setRightTab("layers")}
@@ -701,7 +732,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              图层
+              {t("layers.title")}
             </button>
             <button
               onClick={() => setRightTab("stats")}
@@ -711,12 +742,12 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              统计
+              {t("stats.title")}
             </button>
             <button
               onClick={() => setSidebarCollapsed(true)}
               className="px-1.5 py-1.5 text-gray-300 hover:text-gray-500"
-              title="折叠侧边栏"
+              title={t("layers.collapse")}
             >
               ▶
             </button>
@@ -730,22 +761,26 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
               <div className="p-2 flex flex-col gap-2 text-xs overflow-y-auto">
                 {/* Bead layers (top = rendered last = highest) */}
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-gray-600">拼豆图层</span>
+                  <span className="font-semibold text-gray-600">{t("layers.beadLayers")}</span>
                   <button
                     onClick={async () => {
-                      const name = await appPrompt("图层名称", `图层 ${layers.length + 1}`, { title: "新建图层" });
-                      if (name !== null) addLayer(name || `图层 ${layers.length + 1}`);
+                      const defaultName = getLayerDisplayName({
+                        name: `Layer ${nextDefaultLayerNameIndex}`,
+                        defaultNameIndex: nextDefaultLayerNameIndex,
+                      });
+                      const name = await appPrompt(t("layers.namePrompt"), defaultName, { title: t("layers.new") });
+                      if (name !== null) addLayer(normalizeDefaultLayerPromptName(name, defaultName));
                     }}
                     className="px-1.5 py-0.5 bg-blue-500 text-white rounded text-[10px] hover:bg-blue-600"
                   >
-                    + 新建图层
+                    + {t("layers.new")}
                   </button>
                 </div>
 
                 {layers.length > 1 && (
                   <label
                     className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer select-none border border-gray-200 rounded px-2 py-1 bg-white"
-                    title="鼠标在画布上时显示当前激活图层的浮动提示"
+                    title={t("layers.activeTagHint")}
                   >
                     <input
                       type="checkbox"
@@ -753,7 +788,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                       onChange={(e) => setShowActiveLayerTag(e.target.checked)}
                       className="w-3 h-3"
                     />
-                    <span>画布上显示浮动图层提示</span>
+                    <span>{t("layers.activeTag")}</span>
                   </label>
                 )}
 
@@ -787,15 +822,17 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                         <button
                           onClick={() => setActiveLayer(layer.id)}
                           onDoubleClick={async () => {
-                            const name = await appPrompt("重命名图层", layer.name, { title: "重命名图层" });
-                            if (name !== null && name.trim()) renameLayer(layer.id, name.trim());
+                            const displayedName = getLayerDisplayName(layer);
+                            const name = await appPrompt(t("layers.rename"), displayedName, { title: t("layers.rename") });
+                            if (name !== null && name.trim()) renameLayer(layer.id, normalizeDefaultLayerPromptName(name, displayedName));
                           }}
                           className={`flex-1 text-left truncate ${
                             isActive ? "font-bold text-blue-900 text-sm" : "text-gray-600"
                           }`}
-                          title="双击重命名"
+                          title={t("layers.renameHint")}
+                          data-user-content
                         >
-                          {layer.name}
+                          {getLayerDisplayName(layer)}
                         </button>
                         {isActive && <span className="text-[9px] text-blue-500">✎</span>}
                       </div>
@@ -816,38 +853,38 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                         <button
                           onClick={() => moveLayer(layer.id, "up")}
                           className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
-                          title="上移"
+                          title={t("layers.moveUp")}
                         >↑</button>
                         <button
                           onClick={() => moveLayer(layer.id, "down")}
                           className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
-                          title="下移"
+                          title={t("layers.moveDown")}
                         >↓</button>
                         <button
-                          onClick={() => duplicateLayer(layer.id)}
+                          onClick={() => duplicateLayer(layer.id, t("layers.copyName", { name: getLayerDisplayName(layer) }))}
                           className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
-                          title="复制"
-                        >复制</button>
+                          title={t("layers.duplicate")}
+                        >{t("layers.duplicate")}</button>
                         {layerIdx > 0 && (
                           <button
                             onClick={async () => {
                               const lower = layers[layerIdx - 1];
                               const ok = await appConfirm(
-                                `向下合并？「${layer.name}」将并入「${lower.name}」，合并为一层。\n切换图层前可用 Ctrl+Z 撤销。`,
-                                { title: "合并图层" },
+                                t("layers.mergeConfirm", { name: getLayerDisplayName(layer), lower: getLayerDisplayName(lower) }),
+                                { title: t("layers.mergeTitle") },
                               );
                               if (ok) mergeLayerDown(layer.id);
                             }}
                             className="px-1 py-0 border rounded text-[9px] hover:bg-gray-100"
-                            title="合并到下层（与下方图层合为一层）"
-                          >合并到下层</button>
+                            title={t("layers.mergeHint")}
+                          >{t("layers.mergeDown")}</button>
                         )}
                         {layers.length > 1 && (
                           <button
                             onClick={() => removeLayer(layer.id)}
                             className="px-1 py-0 border rounded text-[9px] text-red-400 hover:bg-red-50"
-                            title="删除"
-                          >删除</button>
+                            title={t("layers.delete")}
+                          >{t("layers.delete")}</button>
                         )}
                       </div>
                     </div>
@@ -869,7 +906,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                     ) : (
                       <input type="checkbox" disabled className="w-3 h-3 opacity-30" />
                     )}
-                    <span className="font-semibold text-gray-600">🖼️ 参考图 (不导出)</span>
+                    <span className="font-semibold text-gray-600">🖼️ {t("layers.reference")}</span>
                   </div>
                   {refImagePixels ? (
                     <>
@@ -890,11 +927,11 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                         onClick={clearRefImage}
                         className="text-[10px] text-red-400 hover:text-red-600 underline mt-1"
                       >
-                        移除
+                        {t("layers.remove")}
                       </button>
                     </>
                   ) : (
-                    <p className="text-[10px] text-gray-400 mt-0.5">导入图片时自动设置</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{t("layers.referenceHint")}</p>
                   )}
                 </div>
 
@@ -909,11 +946,11 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                       onChange={(e) => setGridVisible(e.target.checked)}
                       className="w-3 h-3"
                     />
-                    <span className="font-semibold text-gray-600">📐 网格</span>
+                    <span className="font-semibold text-gray-600">📐 {t("layers.grid")}</span>
                   </div>
                   <div className="mt-1 flex flex-col gap-1">
                     <div className="flex items-center gap-1">
-                      <span className="text-gray-500 w-12">边距</span>
+                      <span className="text-gray-500 w-12">{t("layers.padding")}</span>
                       <input
                         type="number"
                         min={0}
@@ -922,17 +959,17 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                         onChange={(e) => setEdgePadding(Number(e.target.value))}
                         className="w-12 px-1 py-0 border rounded text-center text-[10px]"
                       />
-                      <span className="text-[9px] text-gray-400">格</span>
+                      <span className="text-[9px] text-gray-400">{t("layers.cells")}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className="text-gray-500 w-12">起始列</span>
+                      <span className="text-gray-500 w-12">{t("layers.startColumn")}</span>
                       <input
                         type="number"
                         value={gridConfig.startX}
                         onChange={(e) => setGridStartCoords(Number(e.target.value), gridConfig.startY)}
                         className="w-12 px-1 py-0 border rounded text-center text-[10px]"
                       />
-                      <span className="text-gray-500 w-12">起始行</span>
+                      <span className="text-gray-500 w-12">{t("layers.startRow")}</span>
                       <input
                         type="number"
                         value={gridConfig.startY}
@@ -941,7 +978,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                       />
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className="text-gray-500 w-12">细线</span>
+                      <span className="text-gray-500 w-12">{t("layers.thinLine")}</span>
                       <input
                         type="color"
                         value={rgbaToHex(gridConfig.lineColor)}
@@ -960,7 +997,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                       <span className="text-[9px] text-gray-400">px</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className="text-gray-500 w-12">粗线</span>
+                      <span className="text-gray-500 w-12">{t("layers.thickLine")}</span>
                       <input
                         type="color"
                         value={rgbaToHex(gridConfig.groupLineColor)}
@@ -990,7 +1027,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             <button
               onClick={() => setSidebarCollapsed(false)}
               className="w-5 flex items-center justify-center border-l bg-gray-50 hover:bg-gray-100 text-gray-300 hover:text-gray-500 text-xs"
-              title="展开侧边栏"
+              title={t("layers.expand")}
             >
               ◀
             </button>
@@ -1027,8 +1064,8 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
       {blueprintImporting && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white rounded-lg shadow-xl w-[360px] p-4 flex flex-col gap-3">
-            <div className="text-sm font-semibold">正在导入图纸</div>
-            <div className="text-xs text-gray-600 truncate" title={blueprintProgress}>{blueprintProgress}</div>
+            <div className="text-sm font-semibold">{t("import.blueprint.importingTitle")}</div>
+            <div className="text-xs text-gray-600 truncate" title={t(`import.blueprint.progress.${blueprintProgress}`)}>{t(`import.blueprint.progress.${blueprintProgress}`)}</div>
             <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
               <div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(blueprintProgressFraction * 100)}%` }} />
             </div>
@@ -1036,7 +1073,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
               <button
                 onClick={() => blueprintAbort?.abort()}
                 className="px-3 py-1 border border-red-300 text-red-600 rounded text-sm hover:bg-red-50"
-              >取消</button>
+              >{t("dialogs.cancel")}</button>
             </div>
           </div>
         </div>
@@ -1063,7 +1100,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             const controller = new AbortController();
             setBlueprintImporting(true);
             setBlueprintAbort(controller);
-            setBlueprintProgress(`正在导入 ${w}×${h} 图纸...`);
+            setBlueprintProgress("loading-image");
             setBlueprintProgressFraction(0);
             try {
               const palette = MARD_COLORS
@@ -1073,7 +1110,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   const eff = getEffectiveColor(i, colorOverrides);
                   return { code: c.code, r: eff.rgb![0], g: eff.rgb![1], b: eff.rgb![2] };
                 });
-              setBlueprintProgress("正在识别颜色...");
+              setBlueprintProgress("matching-colors");
               const result = await adapter.importBlueprint(
                 pending.path,
                 palette,
@@ -1093,7 +1130,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
               setBlueprintReimportCtx({ path: pending.path, bbox });
             } catch (e) {
               if ((e as Error)?.name !== "AbortError") {
-                await appAlert(`图纸导入失败: ${e}`);
+                await appAlert(t(blueprintImportErrorKey(e)));
               }
             } finally {
               setBlueprintImporting(false);
@@ -1152,11 +1189,11 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
       {showOpenWarning && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
-            <h2 className="font-semibold text-sm mb-2">未保存的修改</h2>
-            <p className="text-xs text-gray-600 mb-4">当前项目有未保存的修改，继续打开会丢失这些修改。</p>
+            <h2 className="font-semibold text-sm mb-2">{t("project.unsavedTitle")}</h2>
+            <p className="text-xs text-gray-600 mb-4">{t("project.openDirty")}</p>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => { setShowOpenWarning(false); openRequestRef.current = null; }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">取消</button>
-              <button onClick={() => { setShowOpenWarning(false); void performOpen(); }} className="px-3 py-1.5 bg-red-500 text-white text-xs rounded hover:bg-red-600">继续</button>
+              <button onClick={() => { setShowOpenWarning(false); openRequestRef.current = null; }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">{t("dialogs.cancel")}</button>
+              <button onClick={() => { setShowOpenWarning(false); void performOpen(); }} className="px-3 py-1.5 bg-red-500 text-white text-xs rounded hover:bg-red-600">{t("project.continue")}</button>
             </div>
           </div>
         </div>
@@ -1165,12 +1202,12 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
       {showAutosaveRecovery && pendingAutosave && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" data-testid="autosave-recovery-dialog">
           <div className="bg-white rounded-lg shadow-xl w-[380px] p-4">
-            <h2 className="font-semibold text-sm mb-2">检测到未恢复的自动备份</h2>
-            <p className="text-xs text-gray-600 mb-4">可以恢复上次未保存的内容，恢复后需另存为新文件。</p>
+            <h2 className="font-semibold text-sm mb-2">{t("recovery.title")}</h2>
+            <p className="text-xs text-gray-600 mb-4">{t("recovery.message")}</p>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => { autosaveRecoveryStateRef.current = null; setPendingAutosave(null); setShowAutosaveRecovery(false); }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">稍后</button>
-              <button onClick={() => { void dismissAutosaveRecovery(); }} className="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50">删除备份</button>
-              <button onClick={() => { void applyAutosaveRecovery(); }} className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600">恢复</button>
+              <button onClick={() => { autosaveRecoveryStateRef.current = null; setPendingAutosave(null); setShowAutosaveRecovery(false); }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">{t("recovery.later")}</button>
+              <button onClick={() => { void dismissAutosaveRecovery(); }} className="px-3 py-1.5 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50">{t("recovery.delete")}</button>
+              <button onClick={() => { void applyAutosaveRecovery(); }} className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600">{t("recovery.restore")}</button>
             </div>
           </div>
         </div>
@@ -1180,8 +1217,8 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
       {showNewCanvasWarning && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
-            <h2 className="font-semibold text-sm mb-2">未保存的修改</h2>
-            <p className="text-xs text-gray-600 mb-4">当前项目有未保存的修改，继续新建会丢失这些修改。</p>
+            <h2 className="font-semibold text-sm mb-2">{t("project.unsavedTitle")}</h2>
+            <p className="text-xs text-gray-600 mb-4">{t("project.newDirty")}</p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => {
@@ -1190,7 +1227,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                 }}
                 className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
               >
-                取消
+                {t("dialogs.cancel")}
               </button>
               <button
                 onClick={() => {
@@ -1203,7 +1240,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                 }}
                 className="px-3 py-1.5 bg-red-500 text-white text-xs rounded hover:bg-red-600"
               >
-                继续
+                {t("project.continue")}
               </button>
             </div>
           </div>
@@ -1214,7 +1251,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
       {showNewCanvas && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[320px] p-4">
-            <h2 className="font-semibold text-sm mb-3">新建画布</h2>
+            <h2 className="font-semibold text-sm mb-3">{t("project.newCanvas")}</h2>
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 {[
@@ -1235,7 +1272,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                 ))}
               </div>
               <div className="flex gap-2 items-center text-xs">
-                <span>宽</span>
+                <span>{t("canvas.width")}</span>
                 <input
                   type="number"
                   min={4}
@@ -1244,7 +1281,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   onChange={(e) => setNewW(Number(e.target.value))}
                   className="w-16 px-2 py-1 border rounded"
                 />
-                <span>高</span>
+                <span>{t("canvas.height")}</span>
                 <input
                   type="number"
                   min={4}
@@ -1286,7 +1323,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   }}
                   className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
                 >
-                  创建
+                  {t("project.create")}
                 </button>
                 <button
                   onClick={() => {
@@ -1295,7 +1332,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   }}
                   className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
                 >
-                  取消
+                  {t("dialogs.cancel")}
                 </button>
               </div>
             </div>
@@ -1314,11 +1351,11 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
         return (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg shadow-xl w-[340px] p-4">
-              <h2 className="font-semibold text-sm mb-3">调整画布</h2>
+              <h2 className="font-semibold text-sm mb-3">{t("canvas.resize")}</h2>
               <div className="flex flex-col gap-3">
                 {/* Size inputs */}
                 <div className="flex gap-2 items-center text-xs">
-                  <span>宽</span>
+                  <span>{t("canvas.width")}</span>
                   <input
                     type="number"
                     min={4}
@@ -1327,7 +1364,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                     onChange={(e) => setResizeW(Math.max(4, Math.min(256, Number(e.target.value))))}
                     className="w-16 px-2 py-1 border rounded"
                   />
-                  <span>高</span>
+                  <span>{t("canvas.height")}</span>
                   <input
                     type="number"
                     min={4}
@@ -1343,14 +1380,14 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   {canvasSize.width}×{canvasSize.height} → {resizeW}×{resizeH}
                   {!isSameSize && (
                     <span className="ml-1">
-                      ({dw >= 0 ? "+" : ""}{dw} 宽, {dh >= 0 ? "+" : ""}{dh} 高)
+                      ({dw >= 0 ? "+" : ""}{dw} {t("canvas.width")}, {dh >= 0 ? "+" : ""}{dh} {t("canvas.height")})
                     </span>
                   )}
                 </div>
 
                 {/* Anchor selector */}
                 <div>
-                  <div className="text-xs text-gray-500 mb-1">锚点（内容保留位置）</div>
+                  <div className="text-xs text-gray-500 mb-1">{t("canvas.anchor")}</div>
                   <div className="inline-grid grid-cols-3 gap-1">
                     {[0, 1, 2].map((row) =>
                       [0, 1, 2].map((col) => (
@@ -1373,7 +1410,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                 {/* Warning for pixel loss */}
                 {lostPixels > 0 && (
                   <div className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded px-2 py-1">
-                    ⚠ 将裁剪 {lostPixels} 个非空像素
+                    ⚠ {t("canvas.cropWarning", { count: lostPixels })}
                   </div>
                 )}
 
@@ -1391,13 +1428,13 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                         : "bg-blue-500 text-white hover:bg-blue-600"
                     }`}
                   >
-                    应用
+                    {t("canvas.apply")}
                   </button>
                   <button
                     onClick={() => setShowResize(false)}
                     className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
                   >
-                    取消
+                    {t("dialogs.cancel")}
                   </button>
                 </div>
               </div>
@@ -1411,7 +1448,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[480px] max-h-[70vh] flex flex-col">
             <div className="px-4 py-3 border-b flex justify-between items-center">
-              <h2 className="font-semibold text-sm">版本管理</h2>
+              <h2 className="font-semibold text-sm">{t("snapshots.manageTitle")}</h2>
               <button
                 onClick={() => setShowSnapshots(false)}
                 className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -1423,8 +1460,8 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
               {/* Local-only notice (persistent, info-pill style) */}
               <div className="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1">
                 {isBrowserExtension
-                  ? "快照仅保存在当前浏览器配置中；清理浏览器数据或卸载扩展会删除本地备份和快照。"
-                  : "📍 快照保存在本地应用数据目录，换设备或重装应用会丢失"}
+                  ? t("snapshots.browserNotice")
+                  : t("snapshots.desktopNotice")}
               </div>
 
               {/* Create snapshot */}
@@ -1433,28 +1470,28 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   type="text"
                   value={snapshotLabel}
                   onChange={(e) => setSnapshotLabel(e.target.value)}
-                  placeholder="版本备注（可选）"
+                  placeholder={t("snapshots.notePlaceholder")}
                   className="flex-1 px-2 py-1 text-xs border rounded"
                 />
                 <button
                   onClick={async () => {
-                    const result = await createSnapshot(snapshotLabel || "手动保存");
+                    const result = await createSnapshot(snapshotLabel || t("snapshots.defaultName"));
                     if (result.ok) setSnapshotLabel("");
-                    else if (result.code !== "cancelled") await appAlert("创建快照失败，请重试");
+                    else if (result.code !== "cancelled") await appAlert(sharedI18n.t("snapshots.createError"));
                   }}
                   className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
                 >
-                  创建快照
+                  {t("snapshots.create")}
                 </button>
                 <span
                   className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-300 text-gray-500 text-[10px] cursor-help select-none"
                   title={isBrowserExtension
-                    ? "快照保存在当前浏览器配置中。清理浏览器数据或卸载扩展会删除本地备份和快照。"
+                    ? t("snapshots.browserNotice")
                     : autosaveDir
-                      ? `保存位置：${autosaveDir}\n如需长期保存请用列表中的「另存为」`
-                      : "快照保存在本机的应用数据目录。如需长期保存请用列表中的「另存为」"
+                      ? t("snapshots.storedAt", { path: autosaveDir })
+                      : t("snapshots.localStorage")
                   }
-                  aria-label="快照存储位置说明"
+                  aria-label={t("snapshots.location")}
                 >
                   i
                 </span>
@@ -1462,7 +1499,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
 
               {/* Snapshot list */}
               {snapshots.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-4">暂无快照</p>
+                <p className="text-xs text-gray-400 text-center py-4">{t("snapshots.empty")}</p>
               ) : (
                 <div className="flex flex-col gap-1">
                   {snapshots.map((s) => (
@@ -1486,48 +1523,48 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                               name: s.name,
                             });
                           } catch (e) {
-                            await appAlert(`加载快照失败: ${e instanceof Error ? e.message : String(e)}`);
+                            await appAlert(sharedI18n.t("snapshots.loadError"));
                           }
                         }}
                         className="px-2 py-1 border border-gray-300 text-blue-600 rounded hover:bg-blue-50 shrink-0"
                       >
-                        对比
+                        {t("snapshots.compare")}
                       </button>
                       <button
                         onClick={async () => {
                           if (!s.sourceProjectId || s.sourceProjectId !== useEditorStore.getState().projectId) {
-                            const proceed = await appConfirm("此快照无法确认属于当前项目，恢复后将需要另存为并解除云端关联。", { title: "恢复快照" });
+                            const proceed = await appConfirm(sharedI18n.t("snapshots.foreignConfirm"), { title: sharedI18n.t("snapshots.restoreTitle") });
                             if (!proceed) return;
                           }
                           const result = await restoreSnapshot(s);
                           if (result.ok) setShowSnapshots(false);
-                          else if (result.code !== "cancelled") await appAlert("恢复快照失败，请检查快照数据");
+                          else if (result.code !== "cancelled") await appAlert(sharedI18n.t("snapshots.restoreError"));
                         }}
                         className="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 shrink-0"
                       >
-                        恢复
+                        {t("snapshots.restore")}
                       </button>
                       <button
                         onClick={async () => {
                           const result = await exportSnapshot(s.path, s.name);
-                          if (result.ok) await appAlert("快照已导出", { title: "导出成功" });
-                          else if (result.code !== "cancelled") await appAlert("导出快照失败，请重试", { title: "导出失败" });
+                          if (result.ok) await appAlert(sharedI18n.t("snapshots.exported"), { title: sharedI18n.t("snapshots.exportSuccess") });
+                          else if (result.code !== "cancelled") await appAlert(sharedI18n.t("snapshots.exportError"), { title: sharedI18n.t("snapshots.exportFailure") });
                         }}
                         className="px-2 py-1 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 shrink-0"
-                        title="导出为独立 .pindou 文件"
+                        title={t("snapshots.saveAsHint")}
                       >
-                        另存为
+                        {t("snapshots.saveAs")}
                       </button>
                       <button
                         onClick={async () => {
-                          if (!(await appConfirm(`确认删除快照「${s.name}」？此操作不可撤销。`, { title: "删除快照" }))) return;
+                          if (!(await appConfirm(sharedI18n.t("snapshots.deleteConfirm", { name: s.name }), { title: sharedI18n.t("snapshots.delete") }))) return;
                           try {
                             await deleteSnapshot(s.path);
                           } catch (e) {
-                            await appAlert(`删除失败: ${e instanceof Error ? e.message : String(e)}`);
+                            await appAlert(sharedI18n.t("snapshots.deleteError"));
                           }
                         }}
-                        title="删除快照"
+                        title={t("snapshots.delete")}
                         className="px-2 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50 shrink-0"
                       >
                         🗑
@@ -1547,9 +1584,9 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
           onClose={() => setCompareSnapshot(null)}
           baselineData={compareSnapshot.canvasData}
           baselineSize={compareSnapshot.canvasSize}
-          baselineLabel={`快照: ${compareSnapshot.name}`}
-          currentLabel="当前"
-          title="与快照对比"
+          baselineLabel={t("snapshots.snapshotLabel", { name: compareSnapshot.name })}
+          currentLabel={t("compare.current")}
+          title={t("snapshots.compareTitle")}
         />
       )}
 
@@ -1558,7 +1595,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[360px] max-h-[70vh] flex flex-col">
             <div className="px-4 py-3 border-b flex justify-between items-center">
-              <h2 className="font-semibold text-sm">历史记录</h2>
+              <h2 className="font-semibold text-sm">{t("history.title")}</h2>
               <button
                 onClick={() => setShowHistory(false)}
                 className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -1568,7 +1605,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {undoStack.length === 0 && redoStack.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-4">暂无操作记录</p>
+                <p className="text-xs text-gray-400 text-center py-4">{t("history.empty")}</p>
               ) : (
                 <div className="flex flex-col gap-0.5">
                   {/* Redo entries (future states, shown on top, grayed out) */}
@@ -1581,10 +1618,10 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                           for (let s = 0; s < stepsForward; s++) redo();
                         }}
                         className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-blue-50 text-gray-400"
-                        title={describeAction(action, colorOverrides)}
+                        title={describeAction(action, colorOverrides, t)}
                       >
                         <span className="w-5 text-center text-[10px]">↪</span>
-                        {renderActionSummary(action, colorOverrides)}
+                        {renderActionSummary(action, colorOverrides, t)}
                       </button>
                     );
                   })}
@@ -1592,7 +1629,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                   {/* Current state marker */}
                   <div className="flex items-center gap-2 px-2 py-1.5 text-xs rounded bg-blue-100 text-blue-700 font-semibold">
                     <span className="w-5 text-center">●</span>
-                    <span>当前状态</span>
+                    <span>{t("history.current")}</span>
                   </div>
 
                   {/* Undo entries (past states, shown below current) */}
@@ -1606,11 +1643,11 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                           setShowHistory(false);
                         }}
                         className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-orange-50 text-gray-600"
-                        title={describeAction(action, colorOverrides)}
+                        title={describeAction(action, colorOverrides, t)}
                       >
                         <span className="w-5 text-center text-[10px]">↩</span>
-                        {renderActionSummary(action, colorOverrides)}
-                        <span className="text-gray-400 ml-auto text-[10px]">-{stepsBack}步</span>
+                        {renderActionSummary(action, colorOverrides, t)}
+                        <span className="text-gray-400 ml-auto text-[10px]">{t("history.steps", { count: stepsBack })}</span>
                       </button>
                     );
                   })}
@@ -1622,7 +1659,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                 onClick={() => setShowHistory(false)}
                 className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
               >
-                关闭
+                {t("dialogs.close")}
               </button>
             </div>
           </div>
@@ -1634,31 +1671,31 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
       {showLoginDialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[360px] p-4">
-            <h3 className="font-semibold text-sm mb-2">登录 GitHub</h3>
+            <h3 className="font-semibold text-sm mb-2">{t("github.loginTitle")}</h3>
             {loginDeviceInfo ? <>
-              <p className="text-xs text-gray-500 mb-3">请在浏览器中打开下方链接，输入验证码完成授权：</p>
+              <p className="text-xs text-gray-500 mb-3">{t("github.instructions")}</p>
               <div className="flex flex-col items-center gap-2 mb-3">
                 <a href={loginDeviceInfo.verification_uri} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-xs underline">{loginDeviceInfo.verification_uri}</a>
                 <div className="text-2xl font-mono font-bold tracking-widest bg-gray-100 px-4 py-2 rounded select-all">{loginDeviceInfo.user_code}</div>
               </div>
             </> : null}
             <p className="text-xs text-center text-gray-500">{loginPolling && <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-1" />}{loginStatus}</p>
-            <div className="flex justify-end mt-3"><button onClick={() => { const current = loginAbortRef.current; loginAbortRef.current = null; current?.abort(); setLoginPolling(false); setShowLoginDialog(false); setLoginDeviceInfo(null); setLoginStatus(""); }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">{loginPolling ? "取消" : "关闭"}</button></div>
+            <div className="flex justify-end mt-3"><button onClick={() => { const current = loginAbortRef.current; loginAbortRef.current = null; current?.abort(); setLoginPolling(false); setShowLoginDialog(false); setLoginDeviceInfo(null); setLoginStatus(""); }} className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100">{t(loginPolling ? "github.cancel" : "github.close")}</button></div>
           </div>
         </div>
       )}
 
       {/* Bottom status bar */}
       <div className="flex items-center gap-3 px-3 py-0.5 bg-gray-100 border-t text-[10px] text-gray-500 select-none">
-        <span>画布: {canvasSize.width}×{canvasSize.height}</span>
-        <span>缩放: {Math.round(zoom * 100)}%</span>
+        <span>{t("status.canvas")}: {canvasSize.width}×{canvasSize.height}</span>
+        <span>{t("status.zoom")}: {Math.round(zoom * 100)}%</span>
         {projectPath && (
           <span className="truncate max-w-[200px]" title={projectPath}>
             {projectPath.split("\\").pop()}
           </span>
         )}
         <div className="flex-1" />
-        {isDirty && <span className="text-orange-500">● 未保存</span>}
+        {isDirty && <span className="text-orange-500">● {t("status.unsaved")}</span>}
         <label className="flex items-center gap-1 cursor-pointer">
           <input
             type="checkbox"
@@ -1666,7 +1703,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             onChange={(e) => setAutoSaveEnabled(e.target.checked)}
             className="w-3 h-3"
           />
-          自动备份
+          {t("status.autosave")}
         </label>
         {aiAvailable && betaFeatures.voiceEnhancement && (
         <label className="flex items-center gap-1 cursor-pointer">
@@ -1676,7 +1713,7 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
             onChange={(e) => setVoiceEnhancementEnabled(e.target.checked)}
             className="w-3 h-3"
           />
-          {voiceEnhancement!.labels.toggle}
+          {t("voice.toggle")}
         </label>
         )}
         <button
@@ -1686,12 +1723,13 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
         >
           Beta
         </button>
-        {lastSavedAt && (
+        {saveStatus && (
           <span
-            className={lastSavedAt.startsWith("自动备份") ? "text-blue-500" : "text-green-600"}
-            title={lastSavedAt.startsWith("自动备份") ? "自动备份保存在项目目录的 .pindou_autosave 文件夹中" : undefined}
+            data-testid="save-status"
+            className={saveStatus.kind === "autosaved" ? "text-blue-500" : "text-green-600"}
+            title={saveStatus.kind === "autosaved" ? t("status.autosaveHint") : undefined}
           >
-            {lastSavedAt}
+            {t(`status.${saveStatus.kind}`, { time: new Date(saveStatus.at).toLocaleTimeString(i18n.language) })}
           </span>
         )}
       </div>
@@ -1699,10 +1737,10 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[320px] p-4">
             <div className="flex justify-between items-center mb-3">
-              <h2 className="font-semibold text-sm">Beta 功能</h2>
+              <h2 className="font-semibold text-sm">{t("beta.settingsTitle")}</h2>
               <button onClick={() => setShowBetaSettings(false)} className="text-gray-400 hover:text-gray-600 text-lg">×</button>
             </div>
-            <p className="text-[10px] text-gray-400 mb-3">实验性功能，可能不稳定。开启后在菜单栏中显示对应按钮。</p>
+            <p className="text-[10px] text-gray-400 mb-3">{t("beta.description")}</p>
             <div className="flex flex-col gap-2 text-xs">
               {Object.entries(betaFeatures).filter(([key]) => key !== "voiceEnhancement" || aiAvailable).map(([key, value]) => (
                 <label key={key} className="flex items-center gap-2 cursor-pointer">
@@ -1713,8 +1751,8 @@ function App({ imageTaskInbox }: { imageTaskInbox?: ImageTaskSource } = {}) {
                     className="w-3 h-3"
                   />
                   <span className="text-gray-600">{
-                    key === "blueprintImport" ? "图纸导入（从导出的图纸还原画布）" :
-                    key === "voiceEnhancement" ? voiceEnhancement!.labels.betaSetting : key
+                    key === "blueprintImport" ? t("beta.blueprintImport") :
+                    key === "voiceEnhancement" ? t("beta.voiceEnhancement") : key
                   }</span>
                 </label>
               ))}

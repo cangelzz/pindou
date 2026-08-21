@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ImagePreview } from "../../adapters";
+import { blueprintImportErrorKey, type BlueprintImportStage } from "../../utils/blueprintImportTS";
 
 interface BBox {
   left: number;
@@ -19,7 +21,7 @@ interface Props {
    * + the actual bbox the backend used (may be lightly snapped). */
   onRedetect: (
     bbox: BBox,
-    opts?: { onProgress?: (stage: string, fraction: number) => void; signal?: AbortSignal },
+    opts?: { onProgress?: (stage: BlueprintImportStage, fraction: number) => void; signal?: AbortSignal },
   ) => Promise<{
     width: number;
     height: number;
@@ -58,13 +60,14 @@ export function BlueprintDimsConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(detectedWidth);
   const [h, setH] = useState(detectedHeight);
   const [bbox, setBBox] = useState<BBox>(detectedBBox);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [busyStage, setBusyStage] = useState("");
+  const [busyStage, setBusyStage] = useState<BlueprintImportStage>("detecting-grid");
   const [busyFraction, setBusyFraction] = useState(0);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const busy = abortController !== null;
@@ -159,7 +162,7 @@ export function BlueprintDimsConfirmDialog({
   const handleRedetect = async () => {
     const controller = new AbortController();
     setAbortController(controller);
-    setBusyStage("");
+    setBusyStage("detecting-grid");
     setBusyFraction(0);
     setRedetectError(null);
     try {
@@ -176,7 +179,7 @@ export function BlueprintDimsConfirmDialog({
       setMetadata(r.hasMetadata);
     } catch (e) {
       if ((e as Error)?.name !== "AbortError") {
-        setRedetectError(e instanceof Error ? e.message : String(e));
+        setRedetectError(t(blueprintImportErrorKey(e)));
       }
     } finally {
       setAbortController(null);
@@ -201,10 +204,10 @@ export function BlueprintDimsConfirmDialog({
     >
       <div className="bg-white rounded-lg shadow-xl w-[760px] max-w-[94vw] max-h-[92vh] flex flex-col">
         <div className="px-4 py-3 border-b flex items-center justify-between">
-          <h2 className="text-sm font-semibold">确认图纸尺寸</h2>
+          <h2 className="text-sm font-semibold">{t("import.blueprint.confirmDims")}</h2>
           <span
             className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold tracking-wider"
-            title="自动识别尚在实验阶段，请核对网格尺寸是否准确"
+            title={t("import.blueprint.betaHint")}
           >
             BETA
           </span>
@@ -246,7 +249,7 @@ export function BlueprintDimsConfirmDialog({
                 </div>
               </div>
               <div className="text-[10px] text-gray-400 leading-tight">
-                拖动蓝框移动 / 拖角点调整。<br />
+                {t("import.blueprint.dragBox")}<br />
                 bbox: {bbox.left}, {bbox.top} → {bbox.right}, {bbox.bottom}
                 {" "}({bbox.right - bbox.left}×{bbox.bottom - bbox.top} px)
               </div>
@@ -258,19 +261,19 @@ export function BlueprintDimsConfirmDialog({
                 {fileName}
               </div>
               <div className="text-[10px] text-gray-400">
-                原图 {preview.original_width} × {preview.original_height} px
+                {t("import.blueprint.original", { width: preview.original_width, height: preview.original_height })}
               </div>
 
               {metadata && (
                 <div className="text-[11px] text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1.5 flex items-center gap-1">
                   <span>✓</span>
-                  <span>检测到本软件生成的精确元数据 · 导入将 100% 还原</span>
+                  <span>{t("import.blueprint.metadata")}</span>
                 </div>
               )}
 
               <div>
                 <div className="text-[11px] text-gray-500 mb-1">
-                  自动识别尺寸{metadata ? "（来自元数据）" : "（来自图像检测）"}
+                  {t("import.blueprint.detectedDims")} ({t(metadata ? "import.blueprint.fromMetadata" : "import.blueprint.fromImage")})
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -280,7 +283,7 @@ export function BlueprintDimsConfirmDialog({
                     value={w}
                     onChange={(e) => setW(parseInt(e.target.value) || 0)}
                     className="w-20 px-2 py-1 text-sm border rounded text-center"
-                    aria-label="网格宽度"
+                    aria-label={t("import.blueprint.gridWidth")}
                   />
                   <span className="text-gray-400 text-sm">×</span>
                   <input
@@ -290,9 +293,9 @@ export function BlueprintDimsConfirmDialog({
                     value={h}
                     onChange={(e) => setH(parseInt(e.target.value) || 0)}
                     className="w-20 px-2 py-1 text-sm border rounded text-center"
-                    aria-label="网格高度"
+                    aria-label={t("import.blueprint.gridHeight")}
                   />
-                  <span className="text-[10px] text-gray-400 ml-1">格 (宽 × 高)</span>
+                  <span className="text-[10px] text-gray-400 ml-1">{t("import.blueprint.cells")}</span>
                 </div>
               </div>
 
@@ -305,20 +308,20 @@ export function BlueprintDimsConfirmDialog({
                       ? "border-blue-400 text-blue-700 hover:bg-blue-50"
                       : "border-gray-300 text-gray-500"
                   } ${busy ? "opacity-60 cursor-wait" : ""}`}
-                  title={bboxDirty ? "用蓝框范围重新识别" : "蓝框未改动"}
+                  title={t(bboxDirty ? "import.blueprint.redetectHint" : "import.blueprint.boxUnchanged")}
                 >
-                  {busy ? "正在重新识别..." : "用此范围重新识别"}
+                  {t(busy ? "import.blueprint.redetecting" : "import.blueprint.redetect")}
                 </button>
                 {busy && (
                   <div className="flex items-center gap-2 text-[11px] mt-1">
                     <div className="flex-1 h-1.5 bg-gray-200 rounded overflow-hidden">
                       <div className="h-full bg-blue-500 transition-all" style={{ width: `${Math.round(busyFraction * 100)}%` }} />
                     </div>
-                    <span className="text-gray-500 shrink-0 min-w-[8em] truncate" title={busyStage}>{busyStage}</span>
+                    <span className="text-gray-500 shrink-0 min-w-[8em] truncate" title={t(`import.blueprint.progress.${busyStage}`)}>{t(`import.blueprint.progress.${busyStage}`)}</span>
                     <button
                       onClick={() => abortController?.abort()}
                       className="px-2 py-0.5 border border-red-300 text-red-600 rounded text-[11px] hover:bg-red-50"
-                    >取消</button>
+                    >{t("dialogs.cancel")}</button>
                   </div>
                 )}
                 {redetectError && (
@@ -328,8 +331,7 @@ export function BlueprintDimsConfirmDialog({
 
               {!metadata && (
                 <div className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                  ⚠ 自动识别对于非本软件导出的图纸（特别是 JPEG 压缩 / 第三方拼豆软件）
-                  可能不准。可拖拽缩略图上的蓝框圈选实际网格区域，再点「用此范围重新识别」。
+                  ⚠ {t("import.blueprint.warning")}
                 </div>
               )}
             </div>
@@ -341,7 +343,7 @@ export function BlueprintDimsConfirmDialog({
             onClick={onCancel}
             className="px-3 py-1 rounded border text-sm hover:bg-gray-100"
           >
-            取消
+            {t("dialogs.cancel")}
           </button>
           <button
             onClick={() => { if (valid) onConfirm(w, h, bbox); }}
@@ -350,7 +352,7 @@ export function BlueprintDimsConfirmDialog({
               valid && !busy ? "bg-blue-500 hover:bg-blue-600" : "bg-blue-300 cursor-not-allowed"
             }`}
           >
-            导入 {w}×{h}
+            {t("import.blueprint.importSize", { width: w, height: h })}
           </button>
         </div>
       </div>

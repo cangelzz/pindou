@@ -1,8 +1,10 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { MARD_COLORS } from "../../data/mard221";
 import { useEditorStore } from "../../store/editorStore";
 import { getEffectiveRgb } from "../../utils/colorHelper";
 import type { BlueprintImportResult, CellResult } from "../../adapters";
+import { blueprintImportErrorKey } from "../../utils/blueprintImportTS";
 
 // ─── Helper: text contrast color ────────────────────────────────
 
@@ -43,6 +45,7 @@ export function BlueprintImportDialog({
   onConfirm,
   onReimport,
 }: BlueprintImportDialogProps) {
+  const { t } = useTranslation();
   // Display the most recent result — starts as the prop, updates after a
   // successful in-dialog reimport. Resets when the prop reference changes
   // (e.g., user closes + reopens with a different image).
@@ -67,7 +70,7 @@ export function BlueprintImportDialog({
     if (!onReimport) return;
     if (editW === currentResult.width && editH === currentResult.height) return;
     if (editW < 1 || editH < 1 || editW > 4096 || editH > 4096) {
-      setReimportError("尺寸需在 1-4096 之间");
+      setReimportError(t("import.blueprint.invalidDims"));
       return;
     }
     setReimportError(null);
@@ -76,7 +79,7 @@ export function BlueprintImportDialog({
       const r = await onReimport(editW, editH);
       setCurrentResult(r);
     } catch (e) {
-      setReimportError(e instanceof Error ? e.message : String(e));
+      setReimportError(t(blueprintImportErrorKey(e)));
     } finally {
       setReimportBusy(false);
     }
@@ -130,9 +133,9 @@ export function BlueprintImportDialog({
         {/* ─── Header ─── */}
         <div className="px-5 py-3 border-b flex items-center justify-between shrink-0 gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <h2 className="text-base font-semibold shrink-0">图纸导入预览</h2>
+            <h2 className="text-base font-semibold shrink-0"> {t("import.blueprint.title")}</h2>
             <span className="text-xs text-gray-500 truncate">
-              格子 {result.cell_size_detected}px · 置信度 {Math.round(result.confidence * 100)}%
+              {t("import.blueprint.gridSummary", { size: result.cell_size_detected, confidence: Math.round(result.confidence * 100) })}
             </span>
           </div>
 
@@ -140,7 +143,7 @@ export function BlueprintImportDialog({
               the preview. Hidden when caller didn't wire onReimport. */}
           {onReimport && (
             <div className="flex items-center gap-1.5 text-xs shrink-0">
-              <span className="text-gray-500">尺寸</span>
+              <span className="text-gray-500">{t("import.blueprint.dimensions")}</span>
               <input
                 type="number"
                 min={1}
@@ -149,7 +152,7 @@ export function BlueprintImportDialog({
                 disabled={reimportBusy}
                 onChange={(e) => setEditW(parseInt(e.target.value) || 0)}
                 className="w-16 px-1.5 py-0.5 border rounded text-center"
-                aria-label="宽"
+                aria-label={t("import.blueprint.width")}
               />
               <span className="text-gray-400">×</span>
               <input
@@ -160,7 +163,7 @@ export function BlueprintImportDialog({
                 disabled={reimportBusy}
                 onChange={(e) => setEditH(parseInt(e.target.value) || 0)}
                 className="w-16 px-1.5 py-0.5 border rounded text-center"
-                aria-label="高"
+                aria-label={t("import.blueprint.height")}
               />
               <button
                 onClick={handleReimport}
@@ -170,9 +173,9 @@ export function BlueprintImportDialog({
                     ? "border-blue-400 text-blue-700 hover:bg-blue-50"
                     : "border-gray-300 text-gray-400 cursor-not-allowed"
                 }`}
-                title={dimsDirty ? "用新尺寸重新导入" : "尺寸未改动"}
+                title={t(dimsDirty ? "import.blueprint.reimportHint" : "import.blueprint.unchanged")}
               >
-                {reimportBusy ? "重新导入中..." : "重新导入"}
+                {t(reimportBusy ? "import.blueprint.reimporting" : "import.blueprint.reimport")}
               </button>
               {reimportError && (
                 <span className="text-[10px] text-red-600 max-w-[16em] truncate" title={reimportError}>{reimportError}</span>
@@ -189,7 +192,7 @@ export function BlueprintImportDialog({
             <button
               onClick={() => setZoom((z) => Math.max(0.3, z - 0.2))}
               className="w-6 h-6 flex items-center justify-center rounded border hover:bg-gray-100"
-              title="缩小"
+              title={t("tools.zoomOut")}
             >
               -
             </button>
@@ -197,21 +200,21 @@ export function BlueprintImportDialog({
             <button
               onClick={() => setZoom((z) => Math.min(3.0, z + 0.2))}
               className="w-6 h-6 flex items-center justify-center rounded border hover:bg-gray-100"
-              title="放大"
+              title={t("tools.zoomIn")}
             >
               +
             </button>
             <button
               onClick={fitToWindow}
               className="px-2 py-1 rounded border hover:bg-gray-100 ml-1"
-              title="适应窗口"
+              title={t("tools.fitWindow")}
             >
-              适应窗口
+              {t("tools.fitWindow")}
             </button>
             <button
               onClick={() => setZoom(1.0)}
               className="px-2 py-1 rounded border hover:bg-gray-100"
-              title="重置缩放"
+              title={t("tools.resetZoom")}
             >
               1:1
             </button>
@@ -297,7 +300,7 @@ export function BlueprintImportDialog({
                       title={
                         cell.final_code
                           ? `${cell.final_code} (${Math.round(cell.color_confidence * 100)}%)`
-                          : "空"
+                          : t("import.blueprint.empty")
                       }
                     >
                       {cellPx >= 22 && cell.final_code ? cell.final_code : ""}
@@ -319,7 +322,7 @@ export function BlueprintImportDialog({
               />
             ) : (
               <div className="p-4 text-center text-xs text-gray-400">
-                点击格子查看颜色信息
+                {t("import.blueprint.selectCell")}
               </div>
             )}
           </div>
@@ -331,13 +334,13 @@ export function BlueprintImportDialog({
             onClick={onClose}
             className="px-4 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded"
           >
-            取消
+            {t("dialogs.cancel")}
           </button>
           <button
             onClick={() => onConfirm(result)}
             className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
           >
-            确认导入
+            {t("import.image.confirm")}
           </button>
         </div>
       </div>
@@ -358,10 +361,11 @@ function CellDetailPanel({
   col: number;
   codeToColor: Map<string, { r: number; g: number; b: number; name: string }>;
 }) {
+  const { t } = useTranslation();
   if (!cell.final_code) {
     return (
       <div className="p-3 border-b bg-gray-50">
-        <div className="text-xs text-gray-400">单元格 ({row + 1}, {col + 1}) — 空</div>
+        <div className="text-xs text-gray-400">{t("import.blueprint.cell", { row: row + 1, col: col + 1 })} — {t("import.blueprint.empty")}</div>
       </div>
     );
   }
@@ -371,7 +375,7 @@ function CellDetailPanel({
   return (
     <div className="p-3 border-b bg-gray-50 space-y-2">
       <div className="text-xs font-medium text-gray-700">
-        单元格 ({row + 1}, {col + 1})
+        {t("import.blueprint.cell", { row: row + 1, col: col + 1 })}
       </div>
       <div className="flex items-center gap-2 text-xs">
         <div

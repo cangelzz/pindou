@@ -29,6 +29,7 @@ test.beforeAll(() => {
       windows: { update: async () => {} }, action: { onClicked: event },
       contextMenus: { create() {}, remove: async () => {}, onClicked: event },
       storage: { local: { get: async key => ({ [key]: stored[key] }), set: async values => Object.assign(stored, values), remove: async key => { if (globalThis.__failStorageRemove) throw new Error('remove denied'); delete stored[key]; } } },
+      i18n: { getUILanguage: () => 'en' },
     };
     globalThis.fetch = async url => {
       if (url.endsWith('/device/code')) return new Response(JSON.stringify({ device_code: 'device', user_code: 'USER-CODE', verification_uri: 'https://github.com/login/device', expires_in: 60, interval: 1 }), { status: 200 });
@@ -59,9 +60,21 @@ test("HTTP bundle harness authenticates, stores locally, logs out, and has no AI
   await expect(menu).toBeVisible();
   const localStorageWrites: string[] = [];
   await page.evaluate(() => {
-    const original = localStorage.setItem.bind(localStorage);
-    localStorage.setItem = (key, value) => { (globalThis as any).__localStorageWrites = ((globalThis as any).__localStorageWrites ?? []).concat(key); original(key, value); };
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      (globalThis as any).__localStorageWrites = ((globalThis as any).__localStorageWrites ?? []).concat(key);
+      return original.call(this, key, value);
+    };
+    localStorage.setItem("__language_test_sentinel__", "1");
+    localStorage.removeItem("__language_test_sentinel__");
   });
+  expect(await page.evaluate(() => (globalThis as any).__localStorageWrites ?? [])).toContain("__language_test_sentinel__");
+  const language = menu.locator('[data-menu-id="language"]');
+  await expect(language).toHaveText("🌐 中文");
+  await language.click();
+  await expect(language).toHaveText("🌐 EN");
+  expect(await page.evaluate(() => (globalThis as any).__extensionStored["pindou.uiLanguage"])).toBe("zh-CN");
+  expect(await page.evaluate(() => (globalThis as any).__localStorageWrites ?? [])).not.toContain("pindou.uiLanguage");
   await expect(menu.locator('[data-menu-id="login"]')).toBeEnabled();
   await menu.locator('[data-menu-id="login"]').click();
   await expect(page.getByText("USER-CODE")).toBeVisible();
@@ -71,7 +84,7 @@ test("HTTP bundle harness authenticates, stores locally, logs out, and has no AI
   expect(localStorageWrites).not.toContain("github.accessToken");
   await page.evaluate(() => { (globalThis as any).__failStorageRemove = true; });
   await menu.locator('[data-menu-id="logged-in"]').click();
-  await expect(page.getByText("登出失败，未能删除本地 GitHub 凭据，请重试")).toBeVisible();
+  await expect(page.getByText("登出失败，未能删除本地 GitHub 凭据。")).toBeVisible();
   await expect(menu.locator('[data-menu-id="logged-in"]')).toBeVisible();
   expect(await page.evaluate(() => (globalThis as any).__extensionStored["github.accessToken"])).toBe("browser-token");
   await page.getByRole("button", { name: "确定" }).evaluate((button: HTMLButtonElement) => button.click());
@@ -87,7 +100,7 @@ test("HTTP bundle harness authenticates, stores locally, logs out, and has no AI
   const microphone = page.getByTitle(/语音控制/);
   await expect(microphone).toBeVisible();
   await microphone.click();
-  await expect(page.getByText("🎤 正在监听...")).toBeVisible();
+  await expect(page.getByText("🎤 语音控制中")).toBeVisible();
   await page.getByTestId("beta-settings").evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.getByText("图纸导入（从导出的图纸还原画布）")).toBeVisible();
   expect(pageErrors).toEqual([]);

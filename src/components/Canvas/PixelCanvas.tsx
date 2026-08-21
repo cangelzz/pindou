@@ -3,7 +3,7 @@ import { useEditorStore } from "../../store/editorStore";
 import { renderPixels, renderGrid } from "../../utils/canvasRenderer";
 import { MARD_COLORS } from "../../data/mard221";
 import { getEffectiveColor, getEffectiveHex } from "../../utils/colorHelper";
-import { useVoiceControl, type VoiceCommand } from "../../hooks/useVoiceControl";
+import { useVoiceControl, voiceUnknownFeedback, type VoiceCommand } from "../../hooks/useVoiceControl";
 import { playDone, playUnknown, playListenStart, speak, warmupAudio } from "../../utils/audioFeedback";
 import { PreviewThumbnail } from "./PreviewThumbnail";
 import { lineCells, rectCells, circleCells, constrainLine, constrainRect } from "../../utils/shapeDrawing";
@@ -18,6 +18,8 @@ import {
   type ResizeHandle,
 } from "../../utils/selectionResize";
 import { layerAccentColor } from "../../utils/layerColors";
+import { getLayerDisplayName } from "../../store/defaultLayerNames";
+import { useTranslation } from "react-i18next";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 import { SelectionColorAdjustDialog } from "./SelectionColorAdjustDialog";
@@ -25,6 +27,12 @@ import { appAlert, appConfirm } from "../Dialog/AppDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
 
 export function PixelCanvas() {
+  const { t, i18n } = useTranslation();
+  const speechLang = i18n.language === "zh-CN" ? "zh-CN" : "en-US";
+  const speechLangRef = useRef(speechLang);
+  speechLangRef.current = speechLang;
+  const tRef = useRef(t);
+  tRef.current = t;
   const pixelCanvasRef = useRef<HTMLCanvasElement>(null);
   const refCanvasRef = useRef<HTMLCanvasElement>(null);
   const gridCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -92,7 +100,7 @@ export function PixelCanvas() {
 
   const guardActiveLayer = async (): Promise<boolean> => {
     if (!useEditorStore.getState().selectionOnlyOnOtherLayers()) return true;
-    return await appConfirm("当前图层在选区内没有内容，操作不会有效果。是否继续？", { title: "选区不在当前图层" });
+    return await appConfirm(tRef.current("selection.guard.message"), { title: tRef.current("selection.guard.title") });
   };
 
   // Track dragging state
@@ -107,7 +115,7 @@ export function PixelCanvas() {
     if (layer && !layer.visible) {
       if (!hiddenLayerWarnRef.current) {
         hiddenLayerWarnRef.current = true;
-        appAlert("当前图层已隐藏，无法编辑，请先在图层面板显示该图层。", { title: "图层已隐藏" })
+        appAlert(tRef.current("layers.hiddenMessage"), { title: tRef.current("layers.hiddenTitle") })
           .finally(() => { hiddenLayerWarnRef.current = false; });
       }
       return true;
@@ -194,16 +202,16 @@ export function PixelCanvas() {
       const repeat = result.repeat ?? 1;
 
       const LABELS: Record<string, string> = {
-        up: "⬆ 上", down: "⬇ 下", left: "⬅ 左", right: "➡ 右",
-        cancel: "❌ 取消", confirm: "✅ 确认", summary: "📊 总结",
-        goto: "📍 定位", still_here: "👋 还在", unknown: `? ${result.raw}`,
+        up: `⬆ ${tRef.current("voice.commands.up")}`, down: `⬇ ${tRef.current("voice.commands.down")}`, left: `⬅ ${tRef.current("voice.commands.left")}`, right: `➡ ${tRef.current("voice.commands.right")}`,
+        cancel: `❌ ${tRef.current("voice.commands.cancel")}`, confirm: `✅ ${tRef.current("voice.commands.confirm")}`, summary: `📊 ${tRef.current("voice.commands.summary")}`,
+        goto: `📍 ${tRef.current("voice.commands.goto")}`, still_here: `👋 ${tRef.current("voice.commands.stillHere")}`, unknown: voiceUnknownFeedback(result.raw),
       };
 
       // Handle "still here" — just confirm and reset timer
       if (result.command === "still_here") {
         playDone("A");
-        setTimeout(() => speak("好的，继续", "zh-CN"), 250);
-        setVoiceFeedback("👋 还在");
+        setTimeout(() => speak(tRef.current("voice.speech.continue"), speechLangRef.current), 250);
+        setVoiceFeedback(`👋 ${tRef.current("voice.commands.stillHere")}`);
         if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
         voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 1500);
         return;
@@ -229,20 +237,20 @@ export function PixelCanvas() {
           const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
           if (sorted.length === 0) {
             playDone("A");
-            setTimeout(() => speak("空格", "zh-CN"), 250);
+            setTimeout(() => speak(tRef.current("voice.speech.empty"), speechLangRef.current), 250);
           } else {
             const total = sorted.length;
-            const allCodes = sorted.map(([ci]) => MARD_COLORS[ci].code).join("，");
+            const allCodes = sorted.map(([ci]) => MARD_COLORS[ci].code).join(tRef.current("voice.speech.separator"));
             const top2 = sorted.slice(0, 2).map(([ci, cnt]) =>
-              `${MARD_COLORS[ci].code} ${cnt}颗`
+              tRef.current("voice.speech.colorCount", { code: MARD_COLORS[ci].code, count: cnt })
             );
-            const text = `位于${coordCol}列${coordRow}行，共${total}种颜色，分别是${allCodes}，最多的${top2.length === 1 ? "是" : "两个是"}${top2.join("和")}`;
+            const text = tRef.current("voice.speech.summary", { col: coordCol, row: coordRow, total, codes: allCodes, top: top2.join(tRef.current("voice.speech.join")) });
             playDone("A");
-            setTimeout(() => speak(text, "zh-CN"), 250);
+            setTimeout(() => speak(text, speechLangRef.current), 250);
           }
         } else {
           playUnknown();
-          setTimeout(() => speak("请先选择一个网格", "zh-CN"), 250);
+          setTimeout(() => speak(tRef.current("voice.speech.selectGrid"), speechLangRef.current), 250);
         }
         setVoiceFeedback(LABELS.summary);
         if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
@@ -258,7 +266,7 @@ export function PixelCanvas() {
         const maxRow = startY + innerH - 1;
         if (result.gotoCol < minCol || result.gotoCol > maxCol || result.gotoRow < minRow || result.gotoRow > maxRow) {
           playUnknown();
-          setVoiceFeedback(`? 超出范围 ${result.gotoCol}列${result.gotoRow}行`);
+          setVoiceFeedback(`? ${tRef.current("voice.speech.outOfRange", { col: result.gotoCol, row: result.gotoRow })}`);
           return;
         }
         const targetCol = result.gotoCol - startX; // convert label to 0-based
@@ -267,9 +275,9 @@ export function PixelCanvas() {
         const gr = Math.max(0, Math.min(maxGR, Math.floor(targetRow / groupSize)));
         setFocusGroup({ groupCol: gc, groupRow: gr });
         playDone("A");
-        const label = `定位 ${result.gotoCol}列${result.gotoRow}行`;
+        const label = tRef.current("voice.speech.goto", { col: result.gotoCol, row: result.gotoRow });
         setVoiceFeedback(`📍 ${label}`);
-        setTimeout(() => speak(label, "zh-CN"), 250);
+        setTimeout(() => speak(label, speechLangRef.current), 250);
         if (voiceFeedbackTimer.current) clearTimeout(voiceFeedbackTimer.current);
         voiceFeedbackTimer.current = setTimeout(() => setVoiceFeedback(null), 1500);
         return;
@@ -297,13 +305,13 @@ export function PixelCanvas() {
       if (result.command !== "unknown") {
         playDone("A");
         const SPEAK: Record<string, string> = {
-          up: "上", down: "下", left: "左", right: "右",
-          cancel: "取消", confirm: "确认",
+          up: tRef.current("voice.commands.up"), down: tRef.current("voice.commands.down"), left: tRef.current("voice.commands.left"), right: tRef.current("voice.commands.right"),
+          cancel: tRef.current("voice.commands.cancel"), confirm: tRef.current("voice.commands.confirm"),
         };
         const word = SPEAK[result.command] ?? "";
         const isEdge = repeat >= 99;
-        const spk = isEdge ? `最${word}` : (repeat > 1 ? `${word}${repeat}次` : word);
-        setTimeout(() => speak(spk, "zh-CN"), 250);
+        const spk = isEdge ? tRef.current("voice.speech.edge", { direction: word }) : (repeat > 1 ? tRef.current("voice.speech.repeat", { direction: word, count: repeat }) : word);
+        setTimeout(() => speak(spk, speechLangRef.current), 250);
       } else {
         playUnknown();
       }
@@ -317,7 +325,7 @@ export function PixelCanvas() {
   );
 
   // Voice control: start/stop based on store toggle
-  const voiceControl = useVoiceControl({ onCommand: handleVoiceCommand, useLLM: voiceEnhancementEnabled });
+  const voiceControl = useVoiceControl({ lang: speechLang, onCommand: handleVoiceCommand, useLLM: voiceEnhancementEnabled });
 
   // Sync store when voice auto-stops (idle timeout) — only if it was previously listening
   const wasListening = useRef(false);
@@ -883,7 +891,7 @@ export function PixelCanvas() {
             setTool("pen");
           } else if (!eyedropWarnOpenRef.current) {
             eyedropWarnOpenRef.current = true;
-            appAlert("当前图层的这个位置没有颜色。", { title: "无法取色" })
+            appAlert(tRef.current("canvas.eyedropperEmpty"), { title: tRef.current("canvas.eyedropperError") })
               .finally(() => {
                 eyedropWarnOpenRef.current = false;
               });
@@ -1410,12 +1418,12 @@ export function PixelCanvas() {
       {/* Status bar */}
       <div className="flex items-center gap-4 px-3 py-1 bg-gray-100 border-b text-xs text-gray-600 select-none">
         <span>
-          画布: {canvasSize.width}×{canvasSize.height}
+          {t("status.canvas")}: {canvasSize.width}×{canvasSize.height}
         </span>
-        <span>缩放: {Math.round(zoom * 100)}%</span>
+        <span>{t("status.zoom")}: {Math.round(zoom * 100)}%</span>
         {selectedColorIndex !== null && (
           <span className="flex items-center gap-1">
-            当前色:
+            {t("stats.color")}:
             <span
               className="inline-block w-3 h-3 border border-gray-400 rounded-sm"
               style={{ backgroundColor: getEffectiveHex(selectedColorIndex, colorOverrides) }}
@@ -1424,7 +1432,7 @@ export function PixelCanvas() {
           </span>
         )}
         <span className="text-blue-500">
-          图层:{" "}
+          {t("layers.title")}:{" "}
           {layers.length > 1 ? (
             <span
               data-layer-switcher
@@ -1445,7 +1453,7 @@ export function PixelCanvas() {
                 type="button"
                 className="cursor-pointer hover:bg-gray-200 px-1 rounded inline-flex items-center gap-1"
                 onClick={() => setLayerMenuOpen((v) => !v)}
-                title="切换图层"
+                title={t("layers.title")}
               >
                 <span
                   className="inline-block w-2.5 h-2.5 rounded-sm border border-gray-300"
@@ -1454,7 +1462,7 @@ export function PixelCanvas() {
                   }}
                   aria-hidden
                 />
-                {layers.find((l) => l.id === activeLayerId)?.name ?? "—"}
+                {(() => { const layer = layers.find((l) => l.id === activeLayerId); return layer ? getLayerDisplayName(layer) : "—"; })()}
                 <span className="text-[9px] text-gray-500">▾</span>
               </button>
               {layerMenuOpen && (
@@ -1482,7 +1490,7 @@ export function PixelCanvas() {
                           style={{ background: layerAccentColor(idx) }}
                           aria-hidden
                         />
-                        <span className="truncate text-gray-700">{l.name}</span>
+                        <span className="truncate text-gray-700">{getLayerDisplayName(l)}</span>
                         {isActive && <span className="text-[9px] text-blue-500 ml-auto">●</span>}
                       </button>
                     );
@@ -1491,14 +1499,14 @@ export function PixelCanvas() {
               )}
             </span>
           ) : (
-            layers.find((l) => l.id === activeLayerId)?.name ?? "—"
+            (() => { const layer = layers.find((l) => l.id === activeLayerId); return layer ? getLayerDisplayName(layer) : "—"; })()
           )}
         </span>
         {blueprintMode && blueprintMirror && (
-          <span className="text-purple-500">🪞 镜像</span>
+          <span className="text-purple-500">🪞 {t("tools.mirror")}</span>
         )}
         {voiceControl.isListening && (
-          <span className="text-red-500 animate-pulse">🎤 正在监听...</span>
+          <span className="text-red-500 animate-pulse">🎤 {t("voice.listening")}</span>
         )}
         {voiceFeedback && (
           <span className="text-green-600 font-semibold">{voiceFeedback}</span>
@@ -1507,17 +1515,17 @@ export function PixelCanvas() {
         <button
           onClick={() => setShowThumbnail(!showThumbnail)}
           className={`px-1.5 py-0.5 rounded text-[10px] ${showThumbnail ? "bg-blue-100 text-blue-600" : "hover:bg-gray-200"}`}
-          title={showThumbnail ? "关闭预览缩略图" : "显示预览缩略图"}
+          title={t("preview.title")}
         >
-          🖼️ 预览
+          🖼️ {t("preview.title")}
         </button>
         {baselineCanvasData && (
           <button
             onClick={() => setShowChanges(!showChanges)}
             className={`px-1.5 py-0.5 rounded text-[10px] ${showChanges ? "bg-orange-100 text-orange-600" : "hover:bg-gray-200"}`}
-            title={showChanges ? "关闭变更高亮" : "显示变更高亮"}
+            title={t(showChanges ? "compare.hideHighlights" : "compare.showHighlights")}
           >
-            变更
+            {t("compare.changes")}
           </button>
         )}
       </div>
@@ -1598,7 +1606,7 @@ export function PixelCanvas() {
                 style={{ background: accent }}
                 aria-hidden
               />
-              <span>{activeLayer.name}</span>
+              <span>{getLayerDisplayName(activeLayer)}</span>
             </div>
           );
         })()}

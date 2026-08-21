@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useEditorStore } from "../../store/editorStore";
 import type { ProjectInfo } from "../../types";
+import { useTranslation } from "react-i18next";
 
 export function ProjectInfoDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const projectInfo = useEditorStore((s) => s.projectInfo);
   const setProjectInfo = useEditorStore((s) => s.setProjectInfo);
 
@@ -25,7 +27,7 @@ export function ProjectInfoDialog({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-[400px]">
         <div className="px-4 py-3 border-b flex justify-between items-center">
-          <h2 className="font-semibold text-sm">项目信息</h2>
+          <h2 className="font-semibold text-sm">{t("project.info")}</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 text-lg leading-none"
@@ -35,27 +37,27 @@ export function ProjectInfoDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="px-4 py-3 space-y-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">标题</label>
+            <label className="block text-xs text-gray-500 mb-1">{t("project.titleField")}</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="项目标题"
+              placeholder={t("project.titlePlaceholder")}
               className="w-full px-2 py-1.5 border rounded text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">作者</label>
+            <label className="block text-xs text-gray-500 mb-1">{t("project.author")}</label>
             <input
               type="text"
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
-              placeholder="作者名称"
+              placeholder={t("project.authorPlaceholder")}
               className="w-full px-2 py-1.5 border rounded text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">链接</label>
+            <label className="block text-xs text-gray-500 mb-1">{t("project.link")}</label>
             <input
               type="text"
               value={link}
@@ -65,11 +67,11 @@ export function ProjectInfoDialog({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">描述</label>
+            <label className="block text-xs text-gray-500 mb-1">{t("project.description")}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="项目描述或备注"
+              placeholder={t("project.descriptionPlaceholder")}
               rows={3}
               className="w-full px-2 py-1.5 border rounded text-sm resize-none"
             />
@@ -80,13 +82,13 @@ export function ProjectInfoDialog({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             className="px-3 py-1.5 text-xs rounded border hover:bg-gray-100"
           >
-            取消
+            {t("dialogs.cancel")}
           </button>
           <button
             onClick={handleSave}
             className="px-3 py-1.5 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
           >
-            保存
+            {t("menu.save")}
           </button>
         </div>
       </div>

@@ -8,16 +8,22 @@ interface VSCodeGitHubAccount { label: string; id: string }
 export class VSCodeGitHubService extends SessionGitHubService {
   readonly availability = "available" as const;
   constructor(private readonly requestToken: (createIfNone: boolean) => Promise<{ token: string | null; account: VSCodeGitHubAccount | null }>, fetcher: typeof fetch = fetch) { super(fetcher); }
-  async restore(): Promise<void> {
-    const result = await this.requestToken(false);
-    if (result.token) {
-      setGitHubToken(result.token);
-      this.setToken(result.token);
-      this.update({ authenticated: true, login: result.account?.label ?? "GitHub" });
-    } else {
+  async restore(): Promise<PlatformResult<GitHubSession | null>> {
+    try {
+      const result = await this.requestToken(false);
+      if (result.token) {
+        setGitHubToken(result.token);
+        this.setToken(result.token);
+        const session = { authenticated: true as const, login: result.account?.label ?? "GitHub" };
+        this.update(session);
+        return { ok: true, value: session };
+      }
       setGitHubToken("");
       this.setToken(null);
       this.update(null);
+      return { ok: true, value: null };
+    } catch (cause) {
+      return { ok: false, code: "unknown", cause };
     }
   }
   async login(): Promise<PlatformResult<GitHubSession>> {

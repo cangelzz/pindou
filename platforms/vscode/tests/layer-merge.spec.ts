@@ -69,13 +69,13 @@ test.describe("Layer merge down", () => {
 
     // cancel path
     await mergeButtons.first().click();
-    const cancelModal = page.locator("div.fixed.inset-0").filter({ hasText: "合并图层" }).last();
+    const cancelModal = page.locator("div.fixed.inset-0").filter({ hasText: "向下合并" }).last();
     await cancelModal.getByRole("button", { name: /^取消$/ }).click();
     expect(await layerCount(page)).toBe(2);
 
     // confirm path
     await mergeButtons.first().click();
-    const okModal = page.locator("div.fixed.inset-0").filter({ hasText: "合并图层" }).last();
+    const okModal = page.locator("div.fixed.inset-0").filter({ hasText: "向下合并" }).last();
     await okModal.getByRole("button", { name: /^确定$/ }).click();
     expect(await layerCount(page)).toBe(1);
   });

@@ -145,14 +145,43 @@ describe("persistent change tracking", () => {
   });
 });
 
+describe("persistence outcomes", () => {
+  it("distinguishes skipped and saved autosaves without mutating status on skip", async () => {
+    const saveAutosave = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    install({}, recovery({ saveAutosave }));
+    const before = { kind: "saved" as const, at: "before" };
+    storeModule.useEditorStore.setState({ isDirty: false, autoSaveEnabled: true, saveStatus: before });
+    await expect(storeModule.useEditorStore.getState().autoSave()).resolves.toEqual({ ok: true, value: "skipped" });
+    expect(saveAutosave).not.toHaveBeenCalled();
+    expect(storeModule.useEditorStore.getState().saveStatus).toEqual(before);
+
+    storeModule.useEditorStore.setState({ isDirty: true });
+    await expect(storeModule.useEditorStore.getState().autoSave()).resolves.toEqual({ ok: true, value: "saved" });
+    storeModule.useEditorStore.getState().reportAutosaveResult({ ok: true, value: "saved" }, storeModule.useEditorStore.getState().createAutosaveTicket());
+    expect(saveAutosave).toHaveBeenCalledOnce();
+    expect(storeModule.useEditorStore.getState().saveStatus?.kind).toBe("autosaved");
+  });
+
+  it("returns save failures and converts thrown saves to unknown without changing dirty state", async () => {
+    install({ saveProjectAs: vi.fn(async () => ({ ok: false as const, code: "permission-denied" as const })) });
+    storeModule.useEditorStore.setState({ isDirty: true, saveStatus: null });
+    await expect(storeModule.useEditorStore.getState().saveProject()).resolves.toEqual({ ok: false, code: "permission-denied" });
+    expect(storeModule.useEditorStore.getState()).toMatchObject({ isDirty: true, saveStatus: null });
+
+    install({ saveProjectAs: vi.fn(async () => { throw new Error("disk"); }) });
+    await expect(storeModule.useEditorStore.getState().saveProjectAs()).resolves.toMatchObject({ ok: false, code: "unknown" });
+    expect(storeModule.useEditorStore.getState()).toMatchObject({ isDirty: true, saveStatus: null });
+  });
+});
+
 describe("open staleness", () => {
-  it("cancels an open result when content changes while the picker is pending", async () => {
+  it("returns a language-neutral stale result when content changes while the picker is pending", async () => {
     let finish!: (result: any) => void;
     install({ openProject: vi.fn((): Promise<any> => new Promise((resolve) => { finish = resolve; })) });
     const pending = storeModule.useEditorStore.getState().openProject();
     storeModule.useEditorStore.getState().setCell(0, 0, 3);
     finish({ ok: true as const, value: { project: project(undefined, 9), document: { displayName: "picked.pindou", writable: true } } });
-    await expect(pending).resolves.toMatchObject({ ok: false as const, code: "cancelled", message: expect.stringContaining("修改") });
+    await expect(pending).resolves.toEqual({ ok: false as const, code: "stale" });
     expect(storeModule.useEditorStore.getState().canvasData[0][0].colorIndex).toBe(3);
   });
 });
@@ -204,9 +233,9 @@ describe("snapshot identity", () => {
     const saveProjectAs = vi.fn(async () => ({ ok: true as const, value: { displayName: "restored.pindou", writable: true } }));
     install({ saveProject, saveProjectAs }, recovery({ loadSnapshot: vi.fn(async () => ({ ok: true as const, value: { project: project(undefined, 5), sourceProjectId } })) }));
     const oldIdentity = storeModule.useEditorStore.getState().projectId;
-    storeModule.useEditorStore.setState({ projectDocument: { displayName: "A.pindou", writable: true }, projectPath: "A.pindou", cloudGistId: "gist", baselineCanvasData: [[{ colorIndex: 1 }]], lastSavedAt: "saved" });
+    storeModule.useEditorStore.setState({ projectDocument: { displayName: "A.pindou", writable: true }, projectPath: "A.pindou", cloudGistId: "gist", baselineCanvasData: [[{ colorIndex: 1 }]], saveStatus: { kind: "saved", at: "2026-08-20T00:00:00.000Z" } });
     await storeModule.useEditorStore.getState().restoreSnapshot(info(sourceProjectId));
-    expect(storeModule.useEditorStore.getState()).toMatchObject({ projectDocument: null, projectPath: null, cloudGistId: null, baselineCanvasData: null, lastSavedAt: null, isDirty: true });
+    expect(storeModule.useEditorStore.getState()).toMatchObject({ projectDocument: null, projectPath: null, cloudGistId: null, baselineCanvasData: null, saveStatus: null, isDirty: true });
     expect(storeModule.useEditorStore.getState().projectId).not.toBe(oldIdentity);
     await storeModule.useEditorStore.getState().saveProject();
     expect(saveProject).not.toHaveBeenCalled();
@@ -214,7 +243,164 @@ describe("snapshot identity", () => {
   });
 });
 
+describe("localized default layer names", () => {
+  it.each([
+    ["en", (number: number) => `Layer ${number}`, ["Layer 1", "Layer 2"]],
+    ["zh-CN", (number: number) => `图层 ${number}`, ["图层 1", "图层 2"]],
+  ] as const)("keeps canonical names while displaying defaults in %s", async (_language, provider, displayNames) => {
+    const { getLayerDisplayName, setDefaultLayerNameProvider } = await import("./defaultLayerNames");
+    setDefaultLayerNameProvider(provider);
+    storeModule.useEditorStore.getState().newCanvas(2, 2);
+    storeModule.useEditorStore.getState().addLayer();
+    const before = storeModule.useEditorStore.getState().layers;
+    expect(before.map((layer) => layer.name)).toEqual(["Layer 1", "Layer 2"]);
+    expect(before.map(getLayerDisplayName)).toEqual(displayNames);
+    expect(storeModule.useEditorStore.getState().layers).toBe(before);
+  });
+
+  it("keeps stable generated-name indexes when layers are removed and added", async () => {
+    const { getLayerDisplayName, normalizeDefaultLayerPromptName, setDefaultLayerNameProvider } = await import("./defaultLayerNames");
+    setDefaultLayerNameProvider((number) => `图层 ${number}`);
+    storeModule.useEditorStore.getState().newCanvas(2, 2);
+    storeModule.useEditorStore.getState().addLayer();
+    const second = storeModule.useEditorStore.getState().layers[1];
+    storeModule.useEditorStore.getState().removeLayer(second.id);
+    const stateAfterDelete = storeModule.useEditorStore.getState();
+    const promptLayer = { name: `Layer ${stateAfterDelete.nextDefaultLayerNameIndex}`, defaultNameIndex: stateAfterDelete.nextDefaultLayerNameIndex };
+    const promptValue = getLayerDisplayName(promptLayer);
+    expect(promptValue).toBe("图层 3");
+    expect(normalizeDefaultLayerPromptName(promptValue, promptValue)).toBeUndefined();
+    stateAfterDelete.addLayer(normalizeDefaultLayerPromptName(promptValue, promptValue));
+    expect(storeModule.useEditorStore.getState().layers.map((layer) => layer.defaultNameIndex)).toEqual([1, 3]);
+  });
+
+  it("uses the stable generated-name sequence when moving a selection to a new layer", () => {
+    storeModule.useEditorStore.getState().newCanvas(2, 2);
+    storeModule.useEditorStore.getState().addLayer();
+    storeModule.useEditorStore.getState().addLayer();
+    const second = storeModule.useEditorStore.getState().layers[1];
+    storeModule.useEditorStore.getState().removeLayer(second.id);
+    storeModule.useEditorStore.setState({ selection: new Set(["0,0"]), selectionBounds: { r1: 0, c1: 0, r2: 0, c2: 0 } });
+    storeModule.useEditorStore.getState().moveSelectionToNewLayer();
+    expect(storeModule.useEditorStore.getState().layers.map((layer) => layer.defaultNameIndex)).toEqual([1, 3, 4]);
+    expect(storeModule.useEditorStore.getState().nextDefaultLayerNameIndex).toBe(5);
+  });
+
+  it.each(["open", "snapshot"] as const)("preserves generated-name metadata through %s hydration", async (kind) => {
+    const generated = { ...project(), layers: [{ ...project().layers![0], name: "Layer 1", defaultNameIndex: 1 }] };
+    if (kind === "open") {
+      install({ openProject: vi.fn(async () => ({ ok: true as const, value: { project: generated, document: { displayName: "x.pindou", writable: true } } })) });
+      await storeModule.useEditorStore.getState().openProject();
+    } else {
+      install({}, recovery({ loadSnapshot: vi.fn(async () => ({ ok: true as const, value: generated })) }));
+      await storeModule.useEditorStore.getState().restoreSnapshot("snapshot");
+    }
+    const { setDefaultLayerNameProvider } = await import("./defaultLayerNames");
+    setDefaultLayerNameProvider((number) => `Layer ${number}`);
+    storeModule.useEditorStore.getState().localizeDefaultLayerNames();
+    expect(storeModule.useEditorStore.getState().layers[0]).toMatchObject({ name: "Layer 1", defaultNameIndex: 1 });
+  });
+
+  it("marks an empty add-layer name as generated without persisting localization", async () => {
+    const { getLayerDisplayName, setDefaultLayerNameProvider } = await import("./defaultLayerNames");
+    setDefaultLayerNameProvider((number) => `图层 ${number}`);
+    storeModule.useEditorStore.getState().addLayer();
+    const layers = storeModule.useEditorStore.getState().layers;
+    const layer = layers[layers.length - 1];
+    expect(layer).toMatchObject({ name: "Layer 2", defaultNameIndex: 2 });
+    expect(getLayerDisplayName(layer)).toBe("图层 2");
+  });
+
+  it("creates canonical generated layers and preserves custom names", async () => {
+    const { setDefaultLayerNameProvider } = await import("./defaultLayerNames");
+    setDefaultLayerNameProvider((number) => `图层 ${number}`);
+    storeModule.useEditorStore.getState().newCanvas(2, 2);
+    expect(storeModule.useEditorStore.getState().layers[0].name).toBe("Layer 1");
+    const id = storeModule.useEditorStore.getState().layers[0].id;
+    storeModule.useEditorStore.getState().renameLayer(id, "自定义");
+    setDefaultLayerNameProvider((number) => `Layer ${number}`);
+    storeModule.useEditorStore.getState().localizeDefaultLayerNames();
+    expect(storeModule.useEditorStore.getState().layers[0].name).toBe("自定义");
+  });
+
+  it("does not mutate untouched generated layers when language changes", async () => {
+    const { setDefaultLayerNameProvider } = await import("./defaultLayerNames");
+    setDefaultLayerNameProvider((number) => `Layer ${number}`);
+    storeModule.useEditorStore.getState().newCanvas(2, 2);
+    const before = storeModule.useEditorStore.getState().layers;
+    setDefaultLayerNameProvider((number) => `图层 ${number}`);
+    storeModule.useEditorStore.getState().localizeDefaultLayerNames();
+    expect(storeModule.useEditorStore.getState().layers).toBe(before);
+    expect(before[0]).toMatchObject({ name: "Layer 1", defaultNameIndex: 1 });
+  });
+
+  it("migrates only exact historical default names and derives the next index from the max marker", () => {
+    const empty = [[{ colorIndex: null }]];
+    storeModule.useEditorStore.getState().loadProjectLayers([
+      { id: "en", name: "Layer 7", data: empty, visible: true, opacity: 1 },
+      { id: "zh", name: "图层 3", data: empty, visible: true, opacity: 1 },
+      { id: "marker", name: "stale localized value", defaultNameIndex: 11, data: empty, visible: true, opacity: 1 },
+      { id: "custom", name: "拼豆层 12", data: empty, visible: true, opacity: 1 },
+    ], { width: 1, height: 1 });
+    const state = storeModule.useEditorStore.getState();
+    expect(state.layers.map(({ name, defaultNameIndex }) => ({ name, defaultNameIndex }))).toEqual([
+      { name: "Layer 7", defaultNameIndex: 7 },
+      { name: "Layer 3", defaultNameIndex: 3 },
+      { name: "Layer 11", defaultNameIndex: 11 },
+      { name: "拼豆层 12", defaultNameIndex: undefined },
+    ]);
+    expect(state.nextDefaultLayerNameIndex).toBe(12);
+  });
+});
+
 describe("autosave lifecycle", () => {
+  it("keeps loaded project save status on the replacement content revision", async () => {
+    const loaded = project();
+    storeModule.useEditorStore.setState({ contentRevision: 11 });
+    storeModule.useEditorStore.getState().loadProjectDocument(loaded, "loaded.pindou");
+    expect(storeModule.useEditorStore.getState().currentSaveStatus()).toMatchObject({ kind: "saved", revision: 12 });
+
+    install({ openProject: vi.fn(async () => ({ ok: true as const, value: { project: loaded, document: { displayName: "opened.pindou", writable: true } } })) });
+    await storeModule.useEditorStore.getState().openProject();
+    expect(storeModule.useEditorStore.getState().currentSaveStatus()).toMatchObject({ kind: "saved", revision: 13 });
+  });
+
+  it("only exposes save status for the current content revision", () => {
+    storeModule.useEditorStore.setState({ contentRevision: 4, saveStatus: { kind: "saved", at: "now", revision: 3 } });
+    expect(storeModule.useEditorStore.getState().currentSaveStatus()).toBeNull();
+    storeModule.useEditorStore.setState({ saveStatus: { kind: "saved", at: "now", revision: 4 } });
+    expect(storeModule.useEditorStore.getState().currentSaveStatus()).toEqual({ kind: "saved", at: "now", revision: 4 });
+  });
+
+  it("captures the revision completed by formal save when edits race the write", async () => {
+    let finish!: (value: any) => void;
+    install({ saveProjectAs: vi.fn((): Promise<any> => new Promise((resolve) => { finish = resolve; })) });
+    storeModule.useEditorStore.setState({ contentRevision: 5, isDirty: true });
+    const pending = storeModule.useEditorStore.getState().saveProjectAs();
+    storeModule.useEditorStore.getState().setCell(0, 0, 9);
+    finish({ ok: true as const, value: { displayName: "saved.pindou", writable: true } });
+    await pending;
+    expect(storeModule.useEditorStore.getState().saveStatus?.revision).toBe(5);
+    expect(storeModule.useEditorStore.getState().currentSaveStatus()).toBeNull();
+  });
+
+  it("captures the autosave ticket revision in its status", () => {
+    storeModule.useEditorStore.setState({ contentRevision: 8, isDirty: true });
+    const ticket = storeModule.useEditorStore.getState().createAutosaveTicket();
+    expect(storeModule.useEditorStore.getState().reportAutosaveResult({ ok: true, value: "saved" }, ticket)).toBe(true);
+    expect(storeModule.useEditorStore.getState().saveStatus?.revision).toBe(8);
+  });
+
+  it("ignores a stale autosave result after replacing project A with B", async () => {
+    const stateA = storeModule.useEditorStore.getState();
+    const ticket = stateA.createAutosaveTicket();
+    storeModule.useEditorStore.getState().newCanvas(3, 3);
+    storeModule.useEditorStore.getState().reportAutosaveResult({ ok: true, value: "saved" }, ticket);
+    expect(storeModule.useEditorStore.getState().saveStatus).toBeNull();
+    expect(storeModule.useEditorStore.getState().reportAutosaveResult({ ok: false, code: "network" }, ticket)).toBe(false);
+    expect(storeModule.useEditorStore.getState().lastAutosaveErrorCode).toBeNull();
+  });
+
   it("serializes deferred autosave A, formal clear, then newer autosave B", async () => {
     let finishA!: (value: any) => void;
     let stored: ProjectFile | null = null;
@@ -257,7 +443,7 @@ describe("autosave lifecycle", () => {
     const formal = storeModule.useEditorStore.getState().saveProject();
     storeModule.useEditorStore.getState().setCell(0, 0, 2);
     const backup = storeModule.useEditorStore.getState().autoSave();
-    await expect(formal).rejects.toThrow("write rejected");
+    await expect(formal).resolves.toMatchObject({ ok: false, code: "unknown" });
     await expect(backup).resolves.toMatchObject({ ok: true });
     expect(events).toEqual(["save-2"]);
   });

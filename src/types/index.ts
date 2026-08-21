@@ -50,6 +50,8 @@ export interface BeadLayer {
   data: CanvasData;
   visible: boolean;
   opacity: number; // 0-1
+  /** Stable sequence number for a generated name. Display localization is derived and never persisted. */
+  defaultNameIndex?: number;
 }
 
 export interface HistoryEntry {

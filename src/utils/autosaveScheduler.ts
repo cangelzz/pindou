@@ -5,9 +5,9 @@ export interface AutosaveScheduler {
   dispose(): void;
 }
 
-export function createAutosaveScheduler(
-  run: () => Promise<PlatformResult<void>>,
-  report: (result: PlatformResult<void>) => void | Promise<void>,
+export function createAutosaveScheduler<T>(
+  run: () => Promise<PlatformResult<T>>,
+  report: (result: PlatformResult<T>) => void | Promise<void>,
 ): AutosaveScheduler {
   let active = true;
   let inFlight = false;

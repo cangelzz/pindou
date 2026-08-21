@@ -1,4 +1,4 @@
-import type { DeviceCodeInfo, GitHubSession } from "./services";
+import type { DeviceCodeInfo, DeviceFlowStatus, GitHubSession } from "./services";
 import type { PlatformResult } from "./result";
 import { SessionGitHubService } from "./sessionGitHubService";
 import { getGitHubToken } from "../utils/githubToken";
@@ -14,7 +14,7 @@ export class TauriLegacyGitHubService extends SessionGitHubService {
       return signal.aborted ? { ok: false, code: "cancelled" } : { ok: true, value }; }
     catch (cause) { return { ok: false, code: "unknown", cause }; }
   }
-  async pollDeviceFlow(info: DeviceCodeInfo, onStatus: (status: string) => void, signal: AbortSignal): Promise<PlatformResult<GitHubSession>> {
+  async pollDeviceFlow(info: DeviceCodeInfo, onStatus: (status: DeviceFlowStatus) => void, signal: AbortSignal): Promise<PlatformResult<GitHubSession>> {
     const ok = await pollForToken(info.device_code, info.interval, info.expires_in, (status) => {
       if (!signal.aborted) onStatus(status);
     }, signal);

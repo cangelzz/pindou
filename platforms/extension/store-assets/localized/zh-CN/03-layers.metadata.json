@@ -1,0 +1,34 @@
+{
+  "image": "03-layers.png",
+  "locale": "zh-CN",
+  "scenario": "layers",
+  "sample": "dinosaur-raptor.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "7f890552002ecd22d77b49ba6a722c9a0a87afd76f527fd145b180232789b747",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 147,
+      "y": 98.828125,
+      "width": 702,
+      "height": 603
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 9,
+      "offsetX": 99,
+      "offsetY": 23.5
+    }
+  }
+}

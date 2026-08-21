@@ -57,4 +57,19 @@ describe("Tauri AI voice service", () => {
     invoke.mockResolvedValue(response);
     await expect(tauriVoiceEnhancementService.interpret("invalid")).resolves.toMatchObject({ command: "unknown", enhanced: true });
   });
+
+  it("does not return raw model responses in diagnostics", async () => {
+    setGitHubToken("desktop-token");
+    invoke.mockResolvedValue('{"command":"unknown","private":"raw model response"}');
+    const result = await tauriVoiceEnhancementService.interpret("paint a dragon");
+    expect(result).not.toHaveProperty("debug");
+    expect(JSON.stringify(result)).not.toContain("raw model response");
+  });
+
+  it("does not return exception details in diagnostics", async () => {
+    setGitHubToken("desktop-token");
+    invoke.mockRejectedValue(new Error("C:/private/model.json"));
+    const result = await tauriVoiceEnhancementService.interpret("paint a dragon");
+    expect(result).toEqual({ command: "unknown", enhanced: true });
+  });
 });

@@ -15,15 +15,6 @@ JSON examples:
 "取消" -> {"command":"cancel"}`;
 
 export const tauriVoiceEnhancementService: VoiceEnhancementService = {
-  labels: {
-    toggle: "AI语音",
-    voiceOn: "关闭语音控制",
-    voiceOff: "语音控制（说 上下左右 移动聚焦）",
-    enabled: "AI语音增强已启用",
-    betaSetting: "AI 语音增强（GitHub Models LLM）",
-    status: "AI",
-    listening: "🎤 语音控制中",
-  },
   async interpret(transcript: string): Promise<VoiceEnhancementResult> {
     const token = getGitHubToken();
     if (!token) return { command: "unknown", enhanced: false };
@@ -45,10 +36,9 @@ export const tauriVoiceEnhancementService: VoiceEnhancementService = {
         repeat: command !== "unknown" && direction && data.repeat !== undefined ? data.repeat : undefined,
         gotoCol: command === "goto" ? data.col : undefined,
         gotoRow: command === "goto" ? data.row : undefined,
-        debug: cleaned,
       };
-    } catch (error) {
-      return { command: "unknown", enhanced: true, debug: `ERR: ${error instanceof Error ? error.message : String(error)}` };
+    } catch {
+      return { command: "unknown", enhanced: true };
     }
   },
 };

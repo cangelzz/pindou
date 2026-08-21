@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserApi } from "../browserApi";
-import { openOrFocusEditor, registerActionHandler } from "../background";
+import { openOrFocusEditor, registerActionHandler, registerImageTaskHandlers } from "../background";
 
 function createApi(options: {
   tabs?: Array<{ id?: number; windowId?: number; url?: string }>;
@@ -9,11 +9,16 @@ function createApi(options: {
   identifyError?: Error;
 } = {}) {
   let actionHandler: (() => void) | undefined;
+  let installedHandler: (() => void) | undefined;
+  const createdMenus: Array<{ id: string; title: string; contexts: string[] }> = [];
   const stored: Record<string, unknown> = {};
   const tabs = options.tabs ?? [];
   const api: BrowserApi = {
     runtime: {
       getURL: vi.fn(() => "chrome-extension://test/index.html"),
+      onInstalled: { addListener: vi.fn((handler) => { installedHandler = handler; }) },
+      sendMessage: vi.fn(),
+      onMessage: { addListener: vi.fn(), removeListener: vi.fn() },
     },
     tabs: {
       get: vi.fn(async (id) => {
@@ -39,14 +44,20 @@ function createApi(options: {
         }),
       },
     },
+    contextMenus: {
+      create: vi.fn((properties) => { createdMenus.push(properties); }),
+      remove: vi.fn(async () => undefined),
+      onClicked: { addListener: vi.fn() },
+    },
     storage: { local: {
       get: vi.fn(async (key?: string | null) => key == null ? { ...stored } : { [key]: stored[key] }),
       set: vi.fn(async (values) => { Object.assign(stored, values); }),
       remove: vi.fn(async (key) => { for (const item of Array.isArray(key) ? key : [key]) delete stored[item]; }),
     } },
+    i18n: { getUILanguage: () => "en", getMessage: vi.fn((key: string) => key === "contextMenuConvertImage" ? "Convert with PindouVerse" : "") },
   };
 
-  return { api, getActionHandler: () => actionHandler };
+  return { api, getActionHandler: () => actionHandler, runInstalled: () => installedHandler?.(), createdMenus };
 }
 
 describe("openOrFocusEditor", () => {
@@ -111,6 +122,16 @@ describe("openOrFocusEditor", () => {
     await expect(openOrFocusEditor(api)).resolves.toBe(7);
 
     expect(api.windows.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("registerImageTaskHandlers", () => {
+  it("uses the localized browser message for the image context menu", async () => {
+    const { api, runInstalled, createdMenus } = createApi();
+    registerImageTaskHandlers(api);
+    runInstalled();
+    await vi.waitFor(() => expect(createdMenus).toHaveLength(1));
+    expect(createdMenus[0].title).toBe("Convert with PindouVerse");
   });
 });
 

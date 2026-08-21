@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+
+- Feature (shared English/Chinese UI): VS Code, Chrome, and Edge now use the same complete English and Chinese interface across editor tools, dialogs, menus, notifications, import/export, cloud sync, project management, and recovery flows. / VS Code、Chrome 与 Edge 现共享完整的中英文界面，覆盖编辑工具、对话框、菜单、通知、导入导出、云同步、项目管理与恢复流程。
+- Feature (language detection and persistence): the extensions detect the host/browser language on first launch, normalize supported English and Chinese locales, and persist the user's explicit choice for later sessions. / 扩展首次启动会检测宿主或浏览器语言、规范化受支持的中英文区域设置，并持久保存用户主动选择的语言供后续会话使用。
+- Feature (language switch): users can switch languages from the shared UI without reinstalling or reopening a project; host-provided UI and webview content stay synchronized. / 用户可直接在共享界面中切换语言，无需重装扩展或重新打开项目；宿主界面与 webview 内容会保持同步。
+- Correctness and recovery: localized error, confirmation, conflict, autosave, snapshot, and recovery paths now preserve the same behavior and project data guarantees in every supported extension host. / 正确性与恢复：本地化后的错误提示、确认、冲突处理、自动保存、快照与恢复流程，在所有受支持的扩展宿主中保持一致行为与项目数据保障。
+
 ## 1.3.1
 
 - Feature(导出署名): 导出图纸 / 效果图时,顶部标题栏的「标题」改为自动取自「项目信息」里的标题(与作者一致);项目已设标题时只读显示,未设时可在导出框填写,并在导出成功后写回项目信息一并保存。移除了原先在导出框里手填的「描述」水印字段(项目信息里的「描述」字段不受影响,仍保留)。

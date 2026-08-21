@@ -8,6 +8,9 @@ import {
   countRenderedPixels,
   TEST_DATA,
   DIST_DIR,
+  stageReply,
+  getStoreState,
+  setStoreState,
 } from "./helpers";
 import * as path from "path";
 
@@ -60,7 +63,21 @@ test.describe("VS Code webview critical paths", () => {
     expect(types).not.toContain("showSaveDialog");
   });
 
-  test("canvas survives a save echo (not cleared)", async ({ page }) => {
+  for (const [language, expected] of [["en", "Could not save the project"], ["zh-CN", "保存项目失败"]]) {
+    test(`failed in-place save keeps dirty/autosave state and shows ${language} UI`, async ({ page }) => {
+      await setupPage(page, { savedLanguage: language });
+      await loadProject(page);
+      await setStoreState(page, { isDirty: true, saveStatus: null });
+      await stageReply(page, "save", { success: false, error: "disk full" });
+
+      await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true })));
+      await expect(page.locator("div.fixed.inset-0").last()).toContainText(expected);
+      expect(await getStoreState(page, "isDirty")).toBe(true);
+      expect(await getStoreState(page, "saveStatus")).toBeNull();
+    });
+  }
+
+  test("canvas survives a successful save echo (not cleared)", async ({ page }) => {
     await setupPage(page);
     await loadProject(page);
 

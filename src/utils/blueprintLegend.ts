@@ -120,13 +120,28 @@ export interface LegendSectionOptions {
   includeByName?: boolean;  // default false (new in 1.0.5)
 }
 
+export interface BlueprintLegendLabels {
+  byCount: string;
+  byCode: string;
+}
+
+export const DEFAULT_BLUEPRINT_LEGEND_LABELS: BlueprintLegendLabels = {
+  byCount: "By count ({{colors}} colors, {{beads}} beads)",
+  byCode: "By code ({{colors}} colors)",
+};
+
+function formatLegendLabel(template: string, values: Record<string, number>): string {
+  return template.replace(/{{(\w+)}}/g, (_, key: string) => String(values[key] ?? ""));
+}
+
 /** Compute layout dimensions; pre-measures text widths via an offscreen canvas. */
 export function computeLegendLayout(
   cells: (LegendCell | null)[][],
   width: number,
   cellSize: number,
   options: LegendSectionOptions = {},
-  createCanvas: () => HTMLCanvasElement = () => document.createElement("canvas"),
+  createCanvas: (() => HTMLCanvasElement) | undefined = undefined,
+  labels: BlueprintLegendLabels = DEFAULT_BLUEPRINT_LEGEND_LABELS,
 ): LegendLayout {
   const includeByCount = options.includeByCount !== false; // default true
   const includeByName = options.includeByName === true;    // default false
@@ -136,7 +151,7 @@ export function computeLegendLayout(
   const sectionTitleH = Math.floor(cellSize * LEGEND_SCALE * 1.3);
 
   // Measure with an offscreen canvas — works in browser and in VS Code webview
-  const offscreen = createCanvas();
+  const offscreen = (createCanvas ?? (() => document.createElement("canvas")))();
   const ctx = offscreen.getContext("2d")!;
   ctx.font = `${codeFontPx(cellSize)}px ${LEGEND_FONT_FAMILY}`;
 
@@ -155,7 +170,7 @@ export function computeLegendLayout(
     const items = layoutItems(byCount);
     const totalBeads = byCount.reduce((s, x) => s + x.count, 0);
     sections.push({
-      title: `按数量 (${byCount.length} 色, ${totalBeads} 颗)`,
+      title: formatLegendLabel(labels.byCount, { colors: byCount.length, beads: totalBeads }),
       items,
       rowsCount: countRows(items, Math.max(0, innerW)),
     });
@@ -163,7 +178,7 @@ export function computeLegendLayout(
   if (includeByName) {
     const items = layoutItems(byAlpha);
     sections.push({
-      title: `按代号 (${byAlpha.length} 色)`,
+      title: formatLegendLabel(labels.byCode, { colors: byAlpha.length }),
       items,
       rowsCount: countRows(items, Math.max(0, innerW)),
     });

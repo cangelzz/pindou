@@ -7,6 +7,7 @@ import { loadOverrides, saveOverrides, hexToRgb, type ColorOverrideMap } from ".
 import { computeFloodReplaceEntries } from "../utils/floodFill";
 import { buildSelectionRemap, type ColorAdjustments } from "../utils/colorAdjust";
 import { getGroupIndices } from "../data/mard221";
+import { canonicalizeDefaultLayer, getCanonicalDefaultLayerName } from "./defaultLayerNames";
 import type {
   BeadLayer,
   CanvasCell,
@@ -21,6 +22,12 @@ import type {
   ProjectInfo,
 } from "../types";
 
+export interface AutosaveTicket {
+  projectGeneration: number;
+  projectId: string;
+  contentRevision: number;
+}
+
 interface EditorState {
   // Canvas data (merged view from layers)
   canvasSize: CanvasSize;
@@ -30,6 +37,7 @@ interface EditorState {
   // Multi-layer system
   layers: BeadLayer[];
   activeLayerId: string;
+  nextDefaultLayerNameIndex: number;
 
   // Reference image layer (resized original)
   refImagePixels: number[] | null; // flat RGB array
@@ -89,10 +97,12 @@ interface EditorState {
   cloudOperationGeneration: number;
 
   // Auto-save state
-  lastSavedAt: string | null;
+  saveStatus: { kind: "saved" | "autosaved"; at: string; revision?: number } | null;
+  currentSaveStatus: () => EditorState["saveStatus"];
   autoSaveEnabled: boolean;
   lastAutosaveErrorCode: string | null;
-  reportAutosaveResult: (result: PlatformResult<void>) => void;
+  createAutosaveTicket: () => AutosaveTicket;
+  reportAutosaveResult: (result: PlatformResult<"saved" | "skipped">, ticket: AutosaveTicket) => boolean;
 
   // Snapshots
   snapshots: SnapshotInfo[];
@@ -119,7 +129,8 @@ interface EditorState {
   adjustSession: { layerId: string; cells: Map<string, number>; srcIndices: number[]; used: number[] } | null;
 
   // Actions
-  newCanvas: (width: number, height: number) => void;
+  newCanvas: (width: number, height: number, defaultLayerName?: string) => void;
+  localizeDefaultLayerNames: () => void;
   setCell: (row: number, col: number, colorIndex: number | null) => void;
   batchSetCells: (entries: { row: number; col: number; colorIndex: number | null }[]) => void;
   floodFill: (row: number, col: number, colorIndex: number | null) => void;
@@ -220,11 +231,11 @@ interface EditorState {
   setProjectInfo: (info: ProjectInfo) => void;
 
   // Save/Load
-  saveProject: () => Promise<void>;
-  saveProjectAs: () => Promise<void>;
+  saveProject: () => Promise<PlatformResult<void>>;
+  saveProjectAs: () => Promise<PlatformResult<void>>;
   openProject: () => Promise<PlatformResult<void>>;
   restoreAutosave: (project: ProjectFile) => void;
-  autoSave: () => Promise<PlatformResult<void>>;
+  autoSave: () => Promise<PlatformResult<"saved" | "skipped">>;
   setAutoSaveEnabled: (enabled: boolean) => void;
 
   // Snapshots
@@ -246,8 +257,8 @@ interface EditorState {
   setActiveLayer: (id: string) => void;
   setLayerVisible: (id: string, visible: boolean) => void;
   setLayerOpacity: (id: string, opacity: number) => void;
-  renameLayer: (id: string, name: string) => void;
-  duplicateLayer: (id: string) => void;
+  renameLayer: (id: string, name?: string) => void;
+  duplicateLayer: (id: string, copyName?: string) => void;
   moveLayer: (id: string, direction: "up" | "down") => void;
   /** Flatten a layer onto the one below it (upper pixels win). The merged layer keeps the
    *  lower layer's id and name but is always set visible with opacity 1. Undoable via a layers snapshot. */
@@ -270,13 +281,30 @@ function nextLayerId(): string {
   return `layer_${layerIdCounter++}`;
 }
 
-function createDefaultLayer(width: number, height: number, name = "拼豆层"): BeadLayer {
+function hydrateLayers(layers: BeadLayer[]): BeadLayer[] {
+  return layers.map((layer, index) => canonicalizeDefaultLayer({
+    id: nextLayerId(),
+    name: layer.name ?? "Layer",
+    data: layer.data,
+    visible: layer.visible !== false,
+    opacity: typeof layer.opacity === "number" ? Math.max(0, Math.min(1, layer.opacity)) : 1,
+    defaultNameIndex: layer.defaultNameIndex,
+    isDefaultName: (layer as BeadLayer & { isDefaultName?: boolean }).isDefaultName,
+  }, index + 1));
+}
+
+function nextDefaultNameIndex(layers: BeadLayer[]): number {
+  return Math.max(0, ...layers.map((layer) => layer.defaultNameIndex ?? 0)) + 1;
+}
+
+function createDefaultLayer(width: number, height: number, name?: string, number = 1): BeadLayer {
   return {
     id: nextLayerId(),
-    name,
+    name: name ?? getCanonicalDefaultLayerName(number),
     data: createEmptyCanvas(width, height),
     visible: true,
     opacity: 1,
+    defaultNameIndex: name === undefined ? number : undefined,
   };
 }
 
@@ -428,7 +456,7 @@ export function projectFromEditorState(state: Pick<EditorState, "canvasSize" | "
     projectId: state.projectId,
     canvasSize: state.canvasSize,
     canvasData: state.canvasData,
-    layers: state.layers,
+    layers: state.layers.map((layer, index) => canonicalizeDefaultLayer(layer, index + 1)),
     gridConfig: state.gridConfig,
     projectInfo: state.projectInfo,
     createdAt: state.projectCreatedAt,
@@ -449,6 +477,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   layers: [_initLayer],
   activeLayerId: _initLayer.id,
+  nextDefaultLayerNameIndex: 2,
 
   refImagePixels: null,
   refImageWidth: 0,
@@ -496,7 +525,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   contentRevision: 0,
   cloudOperationGeneration: 0,
 
-  lastSavedAt: null,
+  saveStatus: null,
+  currentSaveStatus: () => {
+    const state = get();
+    return state.saveStatus?.revision === state.contentRevision ? state.saveStatus : null;
+  },
   autoSaveEnabled: true,
   lastAutosaveErrorCode: null,
 
@@ -517,15 +550,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   previewOverlay: null,
   adjustSession: null,
 
-  newCanvas: (width, height) => {
+  newCanvas: (width, height, defaultLayerName) => {
     beginProjectReplacement();
-    const layer = createDefaultLayer(width, height);
+    const layer = createDefaultLayer(width, height, defaultLayerName);
     set({
       canvasSize: { width, height },
       canvasData: createEmptyCanvas(width, height),
       gridConfig: makeGridConfig(width, height),
       layers: [layer],
       activeLayerId: layer.id,
+      nextDefaultLayerNameIndex: 2,
       undoStack: [],
       redoStack: [],
       isDirty: false,
@@ -556,10 +590,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       cloudProjectName: null,
       cloudSyncStatus: "unlinked",
       cloudSyncedRevision: null,
-      lastSavedAt: null,
+      saveStatus: null,
       lastAutosaveErrorCode: null,
     });
   },
+
+  localizeDefaultLayerNames: () => {},
 
   setCell: (row, col, colorIndex) => {
     const state = get();
@@ -921,19 +957,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (cloudTicket !== undefined && cloudTicket !== get().cloudOperationGeneration) return false;
     if (ticket === undefined) beginProjectReplacement();
     const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
-    const restoredLayers: BeadLayer[] = hasLayers ? project.layers!.map((layer) => ({
-      ...layer, id: nextLayerId(), visible: layer.visible !== false,
-      opacity: typeof layer.opacity === "number" ? Math.max(0, Math.min(1, layer.opacity)) : 1,
-    })) : (() => { const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height); layer.data = project.canvasData; return [layer]; })();
+    const restoredLayers: BeadLayer[] = hasLayers ? hydrateLayers(project.layers!) : (() => { const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height); layer.data = project.canvasData; return [layer]; })();
     const canvasData = hasLayers ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height) : project.canvasData;
     const revision = get().contentRevision + 1;
     set({
       canvasData, canvasSize: project.canvasSize, layers: restoredLayers,
       activeLayerId: restoredLayers[restoredLayers.length - 1].id,
+      nextDefaultLayerNameIndex: nextDefaultNameIndex(restoredLayers),
       gridConfig: project.gridConfig ? { ...makeGridConfig(project.canvasSize.width, project.canvasSize.height), ...project.gridConfig } : makeGridConfig(project.canvasSize.width, project.canvasSize.height),
       projectInfo: project.projectInfo, projectPath: null, projectDocument: null,
       projectId: project.projectId || newProjectIdentity(), projectCreatedAt: project.createdAt,
-      baselineCanvasData: null, isDirty: true, lastSavedAt: null,
+      baselineCanvasData: null, isDirty: true, saveStatus: null,
       projectGeneration: get().projectGeneration + 1, undoStack: [], redoStack: [],
       selection: null, selectionBounds: null, floatingSelection: null, clipboard: null,
       previewOverlay: null, adjustSession: null, offsetX: 0, offsetY: 0,
@@ -960,6 +994,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       gridConfig: makeGridConfig(size.width, size.height),
       layers: [layer],
       activeLayerId: layer.id,
+      nextDefaultLayerNameIndex: 2,
       undoStack: [],
       redoStack: [],
       projectGeneration: get().projectGeneration + 1,
@@ -974,18 +1009,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     beginProjectReplacement();
     // Re-id layers to keep nextLayerId() monotonic and avoid collisions with the
     // current session's counter (saved files may have been authored elsewhere).
-    const remapped: BeadLayer[] = layers.map((l) => ({
-      id: nextLayerId(),
-      name: l.name ?? "拼豆层",
-      data: l.data,
-      visible: l.visible !== false,
-      opacity: typeof l.opacity === "number" ? Math.max(0, Math.min(1, l.opacity)) : 1,
-    }));
+    const remapped = hydrateLayers(layers);
     set({
       canvasSize: size,
       gridConfig: makeGridConfig(size.width, size.height),
       layers: remapped,
       activeLayerId: remapped[remapped.length - 1].id,
+      nextDefaultLayerNameIndex: nextDefaultNameIndex(remapped),
       canvasData: mergeLayers(remapped, size.width, size.height),
       undoStack: [],
       redoStack: [],
@@ -998,21 +1028,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   loadProjectDocument: (project, path, isBackup = false) => {
     beginProjectReplacement();
+    const replacementRevision = get().contentRevision + 1;
     const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
-    const restoredLayers = hasLayers ? project.layers!.map((layer) => ({
-      ...layer, id: nextLayerId(), visible: layer.visible !== false,
-      opacity: typeof layer.opacity === "number" ? Math.max(0, Math.min(1, layer.opacity)) : 1,
-    })) : (() => { const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height); layer.data = project.canvasData; return [layer]; })();
+    const restoredLayers = hasLayers ? hydrateLayers(project.layers!) : (() => { const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height); layer.data = project.canvasData; return [layer]; })();
     const canvasData = hasLayers ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height) : project.canvasData;
     set({
       canvasSize: project.canvasSize, canvasData, layers: restoredLayers,
       activeLayerId: restoredLayers[restoredLayers.length - 1].id,
+      nextDefaultLayerNameIndex: nextDefaultNameIndex(restoredLayers),
       gridConfig: project.gridConfig ? { ...makeGridConfig(project.canvasSize.width, project.canvasSize.height), ...project.gridConfig } : makeGridConfig(project.canvasSize.width, project.canvasSize.height),
       projectInfo: project.projectInfo, projectCreatedAt: project.createdAt,
       projectId: project.projectId || newProjectIdentity(), projectGeneration: get().projectGeneration + 1,
       projectPath: path, projectDocument: path ? { displayName: path, writable: true } : null,
       baselineCanvasData: isBackup ? null : cloneCanvasData(canvasData), isDirty: isBackup,
-      lastSavedAt: isBackup ? null : new Date().toLocaleTimeString(), autoSaveEnabled: !isBackup,
+      contentRevision: replacementRevision,
+      saveStatus: isBackup ? null : { kind: "saved", at: new Date().toISOString(), revision: replacementRevision }, autoSaveEnabled: !isBackup,
       undoStack: [], redoStack: [], selection: null, selectionBounds: null, floatingSelection: null,
       clipboard: null, previewOverlay: null, adjustSession: null, offsetX: 0, offsetY: 0,
       cloudGistId: null, cloudUpdatedAt: null, cloudVersion: null, cloudProjectName: null,
@@ -1475,7 +1505,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     // Build the new layer's data starting from an empty canvas, with cells
     // from the source written at the same positions.
     const { width, height } = state.canvasSize;
-    const newLayer = createDefaultLayer(width, height, `图层 ${state.layers.length + 1}`);
+    const defaultNameIndex = state.nextDefaultLayerNameIndex;
+    const newLayer = createDefaultLayer(width, height, undefined, defaultNameIndex);
     const newLayerData = newLayer.data.map((row) => row.map((c) => ({ ...c })));
     const clearedSourceData = sourceLayer.data.map((row) => row.map((c) => ({ ...c })));
 
@@ -1495,6 +1526,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       layers: newLayers,
       activeLayerId: newLayer.id,
+      nextDefaultLayerNameIndex: defaultNameIndex + 1,
       canvasData: mergeLayers(newLayers, width, height),
       undoStack: [],
       redoStack: [],
@@ -1588,6 +1620,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       gridConfig: makeGridConfig(canvasW, canvasH),
       layers: [layer],
       activeLayerId: layer.id,
+      nextDefaultLayerNameIndex: 2,
       undoStack: [],
       redoStack: [],
       ...markPersistentChange({}),
@@ -1597,7 +1630,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       projectPath: null,
       projectDocument: null,
       baselineCanvasData: null,
-      lastSavedAt: null,
+      saveStatus: null,
       cloudGistId: null,
       cloudUpdatedAt: null,
       cloudVersion: null,
@@ -1630,25 +1663,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch (error) {
       formalClear.settle(false);
       await formalClear.done;
-      throw error;
+      return { ok: false, code: "unknown", cause: error };
     }
     if (!result.ok || operationGeneration !== _projectOperationGeneration) {
       formalClear.settle(false);
       await formalClear.done;
-      return;
+      return !result.ok ? result : { ok: false, code: "stale" };
     }
     formalClear.settle(true);
-    const now = new Date().toLocaleTimeString();
+    const now = new Date().toISOString();
     set({
       projectPath: result.value.displayName,
       projectDocument: result.value,
       isDirty: projectStateIsUnchanged(state, get()) ? false : get().isDirty,
-      lastSavedAt: now,
+      saveStatus: { kind: "saved", at: now, revision: state.contentRevision },
       baselineCanvasData: projectStateIsUnchanged(state, get())
         ? cloneCanvasData(state.canvasData)
         : get().baselineCanvasData,
     });
     await formalClear.done;
+    return { ok: true, value: undefined };
   },
 
   saveProjectAs: async () => {
@@ -1664,25 +1698,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch (error) {
       formalClear.settle(false);
       await formalClear.done;
-      throw error;
+      return { ok: false, code: "unknown", cause: error };
     }
     if (!result.ok || operationGeneration !== _projectOperationGeneration) {
       formalClear.settle(false);
       await formalClear.done;
-      return;
+      return !result.ok ? result : { ok: false, code: "stale" };
     }
     formalClear.settle(true);
-    const now = new Date().toLocaleTimeString();
+    const now = new Date().toISOString();
     set({
       projectPath: result.value.displayName,
       projectDocument: result.value,
       isDirty: projectStateIsUnchanged(state, get()) ? false : get().isDirty,
-      lastSavedAt: now,
+      saveStatus: { kind: "saved", at: now, revision: state.contentRevision },
       baselineCanvasData: projectStateIsUnchanged(state, get())
         ? cloneCanvasData(state.canvasData)
         : get().baselineCanvasData,
     });
     await formalClear.done;
+    return { ok: true, value: undefined };
   },
 
   openProject: async () => {
@@ -1694,7 +1729,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (openRequestGeneration !== _openRequestGeneration
       || contentRevision !== get().contentRevision
       || projectGeneration !== get().projectGeneration) {
-      return { ok: false, code: "cancelled", message: "选择文件期间项目已修改，请重试" };
+      return { ok: false, code: "stale" };
     }
     beginProjectReplacement();
     const { project, document } = result.value;
@@ -1702,13 +1737,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const savedGrid = project.gridConfig;
     const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
     const restoredLayers: BeadLayer[] = hasLayers
-      ? project.layers!.map((l) => ({
-          id: nextLayerId(),
-          name: l.name ?? "拼豆层",
-          data: l.data,
-          visible: l.visible !== false,
-          opacity: typeof l.opacity === "number" ? Math.max(0, Math.min(1, l.opacity)) : 1,
-        }))
+      ? hydrateLayers(project.layers!)
       : (() => {
           const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
           layer.data = project.canvasData;
@@ -1717,6 +1746,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const mergedCanvas = hasLayers
       ? mergeLayers(restoredLayers, project.canvasSize.width, project.canvasSize.height)
       : project.canvasData;
+    const replacementRevision = get().contentRevision + 1;
     set({
       canvasData: mergedCanvas,
       canvasSize: project.canvasSize,
@@ -1733,7 +1763,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       undoStack: [],
       redoStack: [],
       isDirty: false,
-      lastSavedAt: new Date().toLocaleTimeString(),
+      contentRevision: replacementRevision,
+      saveStatus: { kind: "saved", at: new Date().toISOString(), revision: replacementRevision },
       offsetX: 0,
       offsetY: 0,
       refImagePixels: null,
@@ -1765,14 +1796,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   autoSave: async () => {
     const state = get();
-    if (!state.autoSaveEnabled || !state.isDirty) return { ok: true, value: undefined };
+    if (!state.autoSaveEnabled || !state.isDirty) return { ok: true, value: "skipped" };
     // Recovery is deliberately not a formal save: never update document identity,
-    // dirty state, baseline, or lastSavedAt. Serialize it with formal-save clears
+    // dirty state, baseline, or saveStatus. Serialize it with formal-save clears
     // so an older delayed write cannot erase or overwrite a newer backup.
-    return enqueueAutosaveOperation(() => getPlatformServices().recovery.saveAutosave(buildProjectFile(state)));
+    const result = await enqueueAutosaveOperation(() => getPlatformServices().recovery.saveAutosave(buildProjectFile(state)));
+    return result.ok ? { ok: true, value: "saved" } : result;
   },
 
-  reportAutosaveResult: (result) => set({ lastAutosaveErrorCode: result.ok ? null : result.code }),
+  createAutosaveTicket: () => {
+    const state = get();
+    return { projectGeneration: state.projectGeneration, projectId: state.projectId, contentRevision: state.contentRevision };
+  },
+
+  reportAutosaveResult: (result, ticket) => {
+    const state = get();
+    if (state.projectGeneration !== ticket.projectGeneration || state.projectId !== ticket.projectId || state.contentRevision !== ticket.contentRevision) return false;
+    set(result.ok
+      ? result.value === "saved"
+        ? { lastAutosaveErrorCode: null, saveStatus: { kind: "autosaved" as const, at: new Date().toISOString(), revision: ticket.contentRevision } }
+        : { lastAutosaveErrorCode: null }
+      : { lastAutosaveErrorCode: result.code });
+    return true;
+  },
 
   setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: enabled }),
 
@@ -1812,13 +1858,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const sameProject = !!sourceProjectId && sourceProjectId === get().projectId;
     const hasLayers = Array.isArray(project.layers) && project.layers.length > 0;
     const restoredLayers: BeadLayer[] = hasLayers
-      ? project.layers!.map((l) => ({
-          id: nextLayerId(),
-          name: l.name ?? "拼豆层",
-          data: l.data,
-          visible: l.visible !== false,
-          opacity: typeof l.opacity === "number" ? Math.max(0, Math.min(1, l.opacity)) : 1,
-        }))
+      ? hydrateLayers(project.layers!)
       : (() => {
           const layer = createDefaultLayer(project.canvasSize.width, project.canvasSize.height);
           layer.data = project.canvasData;
@@ -1833,6 +1873,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       canvasSize: project.canvasSize,
       layers: restoredLayers,
       activeLayerId: restoredLayers[restoredLayers.length - 1].id,
+      nextDefaultLayerNameIndex: nextDefaultNameIndex(restoredLayers),
       gridConfig: project.gridConfig ?? makeGridConfig(project.canvasSize.width, project.canvasSize.height),
       projectInfo: project.projectInfo,
       projectCreatedAt: project.createdAt,
@@ -1840,7 +1881,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       projectDocument: sameProject ? state.projectDocument : null,
       projectPath: sameProject ? state.projectPath : null,
       baselineCanvasData: sameProject ? state.baselineCanvasData : null,
-      lastSavedAt: sameProject ? state.lastSavedAt : null,
+      saveStatus: sameProject ? state.saveStatus : null,
       cloudGistId: sameProject ? state.cloudGistId : null,
       cloudUpdatedAt: sameProject ? state.cloudUpdatedAt : null,
       cloudVersion: sameProject ? state.cloudVersion : null,
@@ -1883,9 +1924,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // Layer management
   addLayer: (name) => {
     const state = get();
-    const layer = createDefaultLayer(state.canvasSize.width, state.canvasSize.height, name || `图层 ${state.layers.length + 1}`);
+    const layer = name
+      ? createDefaultLayer(state.canvasSize.width, state.canvasSize.height, name)
+      : createDefaultLayer(state.canvasSize.width, state.canvasSize.height, undefined, state.nextDefaultLayerNameIndex);
     const newLayers = [...state.layers, layer];
-    set(markPersistentChange({ layers: newLayers, activeLayerId: layer.id }));
+    set(markPersistentChange({
+      layers: newLayers,
+      activeLayerId: layer.id,
+      nextDefaultLayerNameIndex: name ? state.nextDefaultLayerNameIndex : state.nextDefaultLayerNameIndex + 1,
+    }));
   },
 
   removeLayer: (id) => {
@@ -1922,17 +1969,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   renameLayer: (id, name) => {
     const state = get();
-    const newLayers = state.layers.map((l) => l.id === id ? { ...l, name } : l);
+    const newLayers = state.layers.map((l) => l.id === id
+      ? name === undefined && l.defaultNameIndex !== undefined
+        ? { ...l, name: getCanonicalDefaultLayerName(l.defaultNameIndex) }
+        : { ...l, name: name ?? l.name, defaultNameIndex: undefined }
+      : l);
     set(markPersistentChange({ layers: newLayers }));
   },
 
-  duplicateLayer: (id) => {
+  duplicateLayer: (id, copyName) => {
     const state = get();
     const src = state.layers.find((l) => l.id === id);
     if (!src) return;
     const copy: BeadLayer = {
       id: nextLayerId(),
-      name: `${src.name} 副本`,
+      name: copyName || `${src.name} Copy`,
       data: src.data.map((r) => r.map((c) => ({ ...c }))),
       visible: true,
       opacity: src.opacity,
