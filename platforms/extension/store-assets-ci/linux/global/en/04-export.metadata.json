@@ -1,0 +1,42 @@
+{
+  "image": "04-export.png",
+  "locale": "en",
+  "scenario": "export",
+  "sample": "dinosaur-brachiosaurus.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "84d79bdcc2fbba79043c55a31ff4001610f1765fcff93a2f2c111e30b90de532",
+  "renderPlatform": "linux",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 186,
+      "y": 88.328125,
+      "width": 624,
+      "height": 624
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 8,
+      "offsetX": 138,
+      "offsetY": 13
+    }
+  },
+  "renderEnvironment": {
+    "runner": "ubuntu-24.04",
+    "playwright": "1.62.1",
+    "chromium": "141.0.7390.37",
+    "sourceCommit": "c0c263106cf1003c23894ab737c1257345f7536f",
+    "command": "npm run ext:screenshots:update-ci-baseline"
+  }
+}

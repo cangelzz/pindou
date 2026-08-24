@@ -5,7 +5,7 @@
   "sample": "dinosaur-raptor.pindou",
   "width": 1280,
   "height": 800,
-  "sha256": "263842d9be3826522d5d0cbe6df3d22da01d9bc40416123d852aa169cba82512",
+  "sha256": "16acd01813c90030184b404bed4617f7528e26837a7a79352d86ccf933fc8308",
   "geometry": {
     "canvas": {
       "x": 48,
@@ -14,10 +14,10 @@
       "height": 704.671875
     },
     "artwork": {
-      "x": 147,
-      "y": 98.828125,
-      "width": 702,
-      "height": 603
+      "x": 142.92537313432837,
+      "y": 95.328125,
+      "width": 710.1492537313433,
+      "height": 610
     },
     "panel": {
       "x": 1056,
@@ -26,9 +26,10 @@
       "height": 731
     },
     "transform": {
-      "cellSize": 9,
-      "offsetX": 99,
-      "offsetY": 23.5
+      "cellSize": 9.104477611940299,
+      "offsetX": 94.92537313432837,
+      "offsetY": 20
     }
-  }
+  },
+  "renderPlatform": "win32"
 }

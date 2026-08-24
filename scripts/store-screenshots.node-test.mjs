@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import pngjs from "pngjs/lib/png.js";
-import { compareStoreScreenshots, expectedStoreScreenshotPaths, storeScreenshotSidecarPath, validateStoreScreenshots } from "./store-screenshots.mjs";
+import { compareStoreScreenshots, expectedStoreScreenshotPaths, selectStoreScreenshotVisualBaseline, storeScreenshotSidecarPath, validateStoreScreenshots } from "./store-screenshots.mjs";
 import { publishStoreScreenshots } from "./store-screenshot-publish.mjs";
 
 const { PNG } = pngjs;
@@ -21,14 +21,14 @@ const scenarios = [
 const png = (width, height) => PNG.sync.write(new PNG({ width, height }), { colorType: 6 });
 const geometry = { canvas: { x: 0, y: 49, width: 1000, height: 751 }, artwork: { x: 100, y: 100, width: 500, height: 500 }, panel: { x: 1000, y: 49, width: 280, height: 751 }, transform: { cellSize: 10, offsetX: 100, offsetY: 51 } };
 
-function createSet(root, width = 1280) {
+function createSet(root, width = 1280, renderPlatform = "win32") {
   for (const file of expectedStoreScreenshotPaths(root)) {
     const bytes = png(width, 800);
     const scenario = scenarios.find(({ file: name }) => name === basename(file));
     const locale = file.includes(join("global", "en")) ? "en" : "zh-CN";
     mkdirSync(join(file, ".."), { recursive: true });
     writeFileSync(file, bytes);
-    writeFileSync(storeScreenshotSidecarPath(file), JSON.stringify({ image: basename(file), locale, scenario: scenario.id, sample: scenario.sample, width, height: 800, sha256: createHash("sha256").update(bytes).digest("hex"), geometry }));
+    writeFileSync(storeScreenshotSidecarPath(file), JSON.stringify({ image: basename(file), locale, scenario: scenario.id, sample: scenario.sample, width, height: 800, sha256: createHash("sha256").update(bytes).digest("hex"), renderPlatform, geometry }));
   }
 }
 
@@ -97,6 +97,14 @@ test("validator rejects swapped locale and incorrect exact scenario descriptors"
     mutateMetadata(root, "en", "01-editor.png", (metadata) => { metadata.locale = "zh-CN"; });
     assert.throws(() => validateStoreScreenshots(root), /locale/i);
     createSet(root);
+    mutateMetadata(root, "en", "01-editor.png", (metadata) => { delete metadata.renderPlatform; });
+    assert.throws(() => validateStoreScreenshots(root), /render platform/i);
+    createSet(root);
+    mutateMetadata(root, "en", "01-editor.png", (metadata) => { metadata.renderPlatform = "linux"; });
+    assert.throws(() => validateStoreScreenshots(root), /mixed render platforms/i);
+    createSet(root);
+    assert.throws(() => validateStoreScreenshots(root, { expectedPlatform: "linux" }), /expected render platform/i);
+    createSet(root);
     mutateMetadata(root, "en", "01-editor.png", (metadata) => { metadata.scenario = "cloud"; });
     assert.throws(() => validateStoreScreenshots(root), /scenario/i);
     createSet(root);
@@ -114,31 +122,64 @@ test("validator requires matching geometry across en and zh-CN", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("render comparison ignores platform-dependent pixels but reports semantic metadata changes", () => {
-  const root = mkdtempSync(join(tmpdir(), "pindou-compare-"));
+test("semantic comparison ignores cross-platform pixels but reports geometry changes", () => {
+  const root = mkdtempSync(join(tmpdir(), "pindou-semantic-compare-"));
   const actual = join(root, "actual"), committed = join(root, "committed");
   try {
-    createSet(actual); createSet(committed);
-    assert.deepEqual(compareStoreScreenshots(actual, committed), []);
+    createSet(actual, 1280, "linux"); createSet(committed, 1280, "win32");
     const pngFile = expectedStoreScreenshotPaths(actual)[0];
-    const subtlyChanged = PNG.sync.read(readFileSync(pngFile));
-    subtlyChanged.data[0] = 1;
-    writeFileSync(pngFile, PNG.sync.write(subtlyChanged));
-    const metadataFile = storeScreenshotSidecarPath(expectedStoreScreenshotPaths(actual)[1]);
-    const metadata = JSON.parse(readFileSync(metadataFile, "utf8"));
-    metadata.scenario = "changed-scenario";
-    writeFileSync(metadataFile, JSON.stringify(metadata));
-    assert.deepEqual(compareStoreScreenshots(actual, committed).map((file) => basename(file)), ["02-image-conversion.metadata.json"]);
-
-    const visiblyChangedFile = expectedStoreScreenshotPaths(actual)[2];
-    const visiblyChanged = PNG.sync.read(readFileSync(visiblyChangedFile));
+    const visiblyChanged = PNG.sync.read(readFileSync(pngFile));
     for (let y = 201; y < 239; y++) for (let x = 121; x < 159; x++) {
       const index = (y * visiblyChanged.width + x) * 4;
       visiblyChanged.data[index] = 255;
       visiblyChanged.data[index + 3] = 255;
     }
-    writeFileSync(visiblyChangedFile, PNG.sync.write(visiblyChanged));
-    assert.deepEqual(compareStoreScreenshots(actual, committed).map((file) => basename(file)), ["03-layers.png", "02-image-conversion.metadata.json"]);
+    writeFileSync(pngFile, PNG.sync.write(visiblyChanged));
+    assert.deepEqual(compareStoreScreenshots(actual, committed, { comparePixels: false }), []);
+
+    const metadataFile = storeScreenshotSidecarPath(expectedStoreScreenshotPaths(actual)[1]);
+    const metadata = JSON.parse(readFileSync(metadataFile, "utf8"));
+    metadata.geometry.transform.offsetX += 1;
+    metadata.geometry.artwork.x += 1;
+    writeFileSync(metadataFile, JSON.stringify(metadata));
+    assert.deepEqual(compareStoreScreenshots(actual, committed, { comparePixels: false }).map((file) => basename(file)), ["02-image-conversion.metadata.json"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("visual baseline selection uses store assets only on the same platform", () => {
+  assert.equal(selectStoreScreenshotVisualBaseline("win32", "win32", "/store", "/ci"), "/store");
+  assert.equal(selectStoreScreenshotVisualBaseline("linux", "win32", "/store", "/ci"), join("/ci", "linux"));
+});
+
+test("render environment provenance does not affect semantic comparison", () => {
+  const root = mkdtempSync(join(tmpdir(), "pindou-provenance-compare-"));
+  const actual = join(root, "actual"), committed = join(root, "committed");
+  try {
+    createSet(actual, 1280, "linux"); createSet(committed, 1280, "win32");
+    mutateMetadata(actual, "en", "01-editor.png", (metadata) => { metadata.renderEnvironment = { runner: "ubuntu-24.04" }; });
+    assert.deepEqual(compareStoreScreenshots(actual, committed, { comparePixels: false }), []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("same-platform comparison reports a visible PNG regression after full validation", () => {
+  const root = mkdtempSync(join(tmpdir(), "pindou-pixel-compare-"));
+  const actual = join(root, "actual"), baseline = join(root, "baseline");
+  try {
+    createSet(actual, 1280, "linux"); createSet(baseline, 1280, "linux");
+    const pngFile = expectedStoreScreenshotPaths(actual)[0];
+    const visiblyChanged = PNG.sync.read(readFileSync(pngFile));
+    for (let y = 201; y < 239; y++) for (let x = 121; x < 159; x++) {
+      const index = (y * visiblyChanged.width + x) * 4;
+      visiblyChanged.data[index] = 255;
+      visiblyChanged.data[index + 3] = 255;
+    }
+    const bytes = PNG.sync.write(visiblyChanged);
+    writeFileSync(pngFile, bytes);
+    mutateMetadata(actual, "en", "01-editor.png", (metadata) => { metadata.sha256 = createHash("sha256").update(bytes).digest("hex"); });
+
+    assert.doesNotThrow(() => validateStoreScreenshots(actual, { expectedPlatform: "linux" }));
+    assert.doesNotThrow(() => validateStoreScreenshots(baseline, { expectedPlatform: "linux" }));
+    assert.deepEqual(compareStoreScreenshots(actual, baseline, { comparePixels: true }).map((file) => basename(file)), ["01-editor.png"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

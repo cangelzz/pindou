@@ -6,6 +6,7 @@ const root = resolve(import.meta.dirname, "..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const ci = read(".github/workflows/ci.yml");
 const release = read(".github/workflows/release.yml");
+const viteConfig = read("vite.config.ts");
 const rootPackage = JSON.parse(read("package.json")) as { version: string; scripts: Record<string, string> };
 const scripts = rootPackage.scripts;
 const vscodePackage = JSON.parse(read("platforms/vscode/package.json")) as { version: string; scripts: Record<string, string> };
@@ -70,6 +71,11 @@ describe("browser extension workflow contract", () => {
     }
   });
 
+  it("keeps root Vitest exclusions shell-independent", () => {
+    expect(scripts.test).toBe("vitest run");
+    expect(viteConfig).toContain('"**/platforms/extension/e2e/**"');
+  });
+
   it("wires VS Code unit tests into its standard test command and CI", () => {
     expect(vscodeScripts["test:unit"]).toBe("vitest run --config vitest.config.ts");
     expect(vscodeScripts.test).toContain("npm run test:unit");
@@ -79,7 +85,7 @@ describe("browser extension workflow contract", () => {
 
   it("tests, validates, packages, and always uploads browser extension CI artifacts", () => {
     const job = jobBlock(ci, "test-extension");
-    expect(job).toContain("runs-on: ubuntu-latest");
+    expect(job).toContain("runs-on: ubuntu-24.04");
     const setup = actionStep(job, "actions/setup-node@v6");
     expect(setup).toContain("node-version: 22");
     expect(setup).toContain("cache: npm");
@@ -124,8 +130,8 @@ describe("browser extension workflow contract", () => {
     expect(jobBlock(release, "build-and-upload")).toContain("needs: [compute-version, create-draft-release]");
   });
 
-  it("keeps extension products at 1.4.0 while desktop version files remain unchanged", () => {
-    expect(vscodePackage.version).toBe("1.4.0");
+  it("keeps extension products at 1.4.1 while desktop version files remain unchanged", () => {
+    expect(vscodePackage.version).toBe("1.4.1");
     expect(vscodeLock.version).toBe(vscodePackage.version);
     expect(vscodeLock.packages[""].version).toBe(vscodePackage.version);
     expect(rootPackage.version).toBe("1.3.4");

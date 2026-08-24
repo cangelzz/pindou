@@ -5,7 +5,7 @@
   "sample": "dinosaur-triceratops.pindou",
   "width": 1280,
   "height": 800,
-  "sha256": "495b4d13f542e8cf1ea28f34dc035d5f6a0890ca52fc65f969fab93bba7667a9",
+  "sha256": "b14bf79312382d9e2a37d688c14e7ad3e57c5b0dde0f9cd07aed8ff7f4030e98",
   "geometry": {
     "canvas": {
       "x": 48,
@@ -14,10 +14,10 @@
       "height": 704.671875
     },
     "artwork": {
-      "x": 186,
-      "y": 112.328125,
-      "width": 624,
-      "height": 576
+      "x": 167.58333333333337,
+      "y": 95.328125,
+      "width": 660.8333333333333,
+      "height": 610
     },
     "panel": {
       "x": 1056,
@@ -26,9 +26,10 @@
       "height": 731
     },
     "transform": {
-      "cellSize": 8,
-      "offsetX": 138,
-      "offsetY": 37
+      "cellSize": 8.472222222222221,
+      "offsetX": 119.58333333333337,
+      "offsetY": 20
     }
-  }
+  },
+  "renderPlatform": "win32"
 }

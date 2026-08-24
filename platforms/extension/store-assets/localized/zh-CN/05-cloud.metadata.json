@@ -30,5 +30,6 @@
       "offsetX": 174,
       "offsetY": 17
     }
-  }
+  },
+  "renderPlatform": "win32"
 }

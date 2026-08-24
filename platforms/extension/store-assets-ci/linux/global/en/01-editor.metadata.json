@@ -1,0 +1,42 @@
+{
+  "image": "01-editor.png",
+  "locale": "en",
+  "scenario": "editor",
+  "sample": "dinosaur-rex.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "a67308daba39f1005b1c9ab19620b0415d0e7f66acb4ea74464b3bfd7c4af953",
+  "renderPlatform": "linux",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 222,
+      "y": 92.328125,
+      "width": 552,
+      "height": 616
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 8,
+      "offsetX": 174,
+      "offsetY": 17
+    }
+  },
+  "renderEnvironment": {
+    "runner": "ubuntu-24.04",
+    "playwright": "1.62.1",
+    "chromium": "141.0.7390.37",
+    "sourceCommit": "c0c263106cf1003c23894ab737c1257345f7536f",
+    "command": "npm run ext:screenshots:update-ci-baseline"
+  }
+}
