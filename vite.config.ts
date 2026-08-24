@@ -10,6 +10,7 @@ export default defineConfig(async () => ({
     exclude: [
       "**/node_modules/**",
       "**/platforms/h5/**",
+      "**/platforms/extension/e2e/**",
       "**/platforms/vscode/**",
       "**/platforms/weapp/**",
     ],

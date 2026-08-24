@@ -1,0 +1,42 @@
+{
+  "image": "03-layers.png",
+  "locale": "zh-CN",
+  "scenario": "layers",
+  "sample": "dinosaur-raptor.pindou",
+  "width": 1280,
+  "height": 800,
+  "sha256": "51894015f000699fbb8fcd7bd1a2704590bc489272de6e284d41a8dc2eb362ee",
+  "renderPlatform": "linux",
+  "geometry": {
+    "canvas": {
+      "x": 48,
+      "y": 75.328125,
+      "width": 1004,
+      "height": 704.671875
+    },
+    "artwork": {
+      "x": 142.92537313432837,
+      "y": 95.328125,
+      "width": 710.1492537313433,
+      "height": 610
+    },
+    "panel": {
+      "x": 1056,
+      "y": 49,
+      "width": 224,
+      "height": 731
+    },
+    "transform": {
+      "cellSize": 9.104477611940299,
+      "offsetX": 94.92537313432837,
+      "offsetY": 20
+    }
+  },
+  "renderEnvironment": {
+    "runner": "ubuntu-24.04",
+    "playwright": "1.62.1",
+    "chromium": "141.0.7390.37",
+    "sourceCommit": "c0c263106cf1003c23894ab737c1257345f7536f",
+    "command": "npm run ext:screenshots:update-ci-baseline"
+  }
+}

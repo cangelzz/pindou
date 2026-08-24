@@ -19,6 +19,9 @@ export const STORE_SCREENSHOT_SIDECAR_SUFFIX = ".metadata.json";
 
 export function expectedStoreScreenshotPaths(root) { return STORE_SCREENSHOT_LOCALES.flatMap((locale) => STORE_SCREENSHOT_NAMES.map((name) => join(root, locale, name))); }
 export function storeScreenshotSidecarPath(file) { const { dir, name } = parse(file); return join(dir, `${name}${STORE_SCREENSHOT_SIDECAR_SUFFIX}`); }
+export function selectStoreScreenshotVisualBaseline(platform, committedPlatform, storeAssetsRoot, ciAssetsRoot) {
+  return platform === committedPlatform ? storeAssetsRoot : join(ciAssetsRoot, platform);
+}
 
 function validateGeometry(geometry, width, height, file) {
   if (!geometry || typeof geometry !== "object" || Object.keys(geometry).length === 0) throw new Error(`Invalid screenshot metadata geometry: ${file}`);
@@ -67,22 +70,26 @@ function hasPerceptualDifference(actualBytes, committedBytes) {
   return totalDifference / pixels > 0.03 || changedPixels / pixels > 0.01 || maxBlockMean > 0.12;
 }
 
-export function compareStoreScreenshots(actualRoot, committedRoot) {
+export function compareStoreScreenshots(actualRoot, committedRoot, { comparePixels = true } = {}) {
   const imageFiles = expectedStoreScreenshotPaths("");
-  const changedImages = imageFiles.filter((file) => hasPerceptualDifference(readFileSync(join(actualRoot, file)), readFileSync(join(committedRoot, file))));
-  const metadataFiles = imageFiles.map(storeScreenshotSidecarPath);
-  const changedMetadata = metadataFiles.filter((file) => {
-    const actual = JSON.parse(readFileSync(join(actualRoot, file), "utf8"));
-    const committed = JSON.parse(readFileSync(join(committedRoot, file), "utf8"));
-    delete actual.sha256;
-    delete committed.sha256;
-    return JSON.stringify(actual) !== JSON.stringify(committed);
-  });
+  const metadata = imageFiles.map((file) => ({
+    file,
+    actual: JSON.parse(readFileSync(join(actualRoot, storeScreenshotSidecarPath(file)), "utf8")),
+    committed: JSON.parse(readFileSync(join(committedRoot, storeScreenshotSidecarPath(file)), "utf8")),
+  }));
+  const changedImages = comparePixels
+    ? imageFiles.filter((file) => hasPerceptualDifference(readFileSync(join(actualRoot, file)), readFileSync(join(committedRoot, file))))
+    : [];
+  const semanticMetadata = ({ sha256, renderPlatform, renderEnvironment, ...semantic }) => semantic;
+  const changedMetadata = metadata
+    .filter(({ actual, committed }) => JSON.stringify(semanticMetadata(actual)) !== JSON.stringify(semanticMetadata(committed)))
+    .map(({ file }) => storeScreenshotSidecarPath(file));
   return [...changedImages, ...changedMetadata];
 }
 
-export function validateStoreScreenshots(root) {
+export function validateStoreScreenshots(root, { expectedPlatform } = {}) {
   const geometries = new Map();
+  let renderPlatform;
   for (const localePath of STORE_SCREENSHOT_LOCALES) {
     const directory = join(root, localePath);
     const expectedLocale = localePath === "global/en" ? "en" : "zh-CN";
@@ -103,6 +110,10 @@ export function validateStoreScreenshots(root) {
       if (metadata.locale !== expectedLocale) throw new Error(`Invalid screenshot metadata locale: ${file}`);
       if (metadata.scenario !== scenario.id) throw new Error(`Invalid screenshot metadata scenario: ${file}`);
       if (metadata.sample !== scenario.sample) throw new Error(`Invalid screenshot metadata sample: ${file}`);
+      if (!['aix', 'darwin', 'freebsd', 'linux', 'openbsd', 'sunos', 'win32'].includes(metadata.renderPlatform)) throw new Error(`Invalid screenshot metadata render platform: ${file}`);
+      if (renderPlatform === undefined) renderPlatform = metadata.renderPlatform;
+      else if (renderPlatform !== metadata.renderPlatform) throw new Error(`Mixed render platforms in screenshot set: ${file}`);
+      if (expectedPlatform !== undefined && metadata.renderPlatform !== expectedPlatform) throw new Error(`Invalid expected render platform ${expectedPlatform}: ${file}`);
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       if (metadata.sha256 !== sha256) throw new Error(`Screenshot metadata hash mismatch: ${file}`);
       validateGeometry(metadata.geometry, width, height, file);
@@ -111,6 +122,7 @@ export function validateStoreScreenshots(root) {
       else if (geometries.get(scenario.id) !== canonicalGeometry) throw new Error(`Locale geometry mismatch for scenario ${scenario.id}: ${file}`);
     }
   }
+  return { renderPlatform };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

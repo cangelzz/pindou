@@ -139,6 +139,7 @@ interface EditorState {
   setTool: (tool: EditorTool) => void;
   setSelectedColor: (index: number | null) => void;
   setZoom: (zoom: number) => void;
+  setViewport: (zoom: number, offsetX: number, offsetY: number) => void;
   fitToWindow: (containerW: number, containerH: number) => void;
   setOffset: (x: number, y: number) => void;
   setBlueprintMode: (on: boolean) => void;
@@ -698,20 +699,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setZoom: (zoom) => {
+    if (!Number.isFinite(zoom)) return;
     const clamped = Math.max(0.5, Math.min(40, zoom));
-    set({ zoom: clamped, cellSize: Math.round(16 * clamped) });
+    set({ zoom: clamped, cellSize: 16 * clamped });
+  },
+
+  setViewport: (zoom, offsetX, offsetY) => {
+    if (![zoom, offsetX, offsetY].every(Number.isFinite)) return;
+    const clamped = Math.max(0.5, Math.min(40, zoom));
+    set({ zoom: clamped, cellSize: 16 * clamped, offsetX, offsetY });
   },
 
   fitToWindow: (containerW, containerH) => {
     const state = get();
     const { width, height } = state.canvasSize;
+    if (![containerW, containerH, width, height].every((value) => Number.isFinite(value) && value > 0)) return;
     const padding = 20; // px margin
     const zoomX = (containerW - padding * 2) / (width * 16);
     const zoomY = (containerH - padding * 2) / (height * 16);
     const zoom = Math.max(0.5, Math.min(40, Math.min(zoomX, zoomY)));
-    const cellSize = Math.round(16 * zoom);
+    const cellSize = 16 * zoom;
     const offsetX = (containerW - width * cellSize) / 2;
     const offsetY = (containerH - height * cellSize) / 2;
+    if (![zoom, cellSize, offsetX, offsetY].every(Number.isFinite)) return;
     set({ zoom, cellSize, offsetX, offsetY });
   },
 

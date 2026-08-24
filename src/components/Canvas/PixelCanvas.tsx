@@ -25,6 +25,7 @@ import { ReplaceColorInSelectionDialog } from "./ReplaceColorInSelectionDialog";
 import { SelectionColorAdjustDialog } from "./SelectionColorAdjustDialog";
 import { appAlert, appConfirm } from "../Dialog/AppDialog";
 import { SelectionActionsChip } from "./SelectionActionsChip";
+import { computeWheelZoom } from "./wheelZoom";
 
 export function PixelCanvas() {
   const { t, i18n } = useTranslation();
@@ -902,6 +903,36 @@ export function PixelCanvas() {
     },
     [currentTool, selectedColorIndex, canvasData, setCell, setSelectedColor, setTool, warnIfActiveLayerHidden]
   );
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+
+      event.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const state = useEditorStore.getState();
+      const next = computeWheelZoom({
+        zoom: state.zoom,
+        cellSize: state.cellSize,
+        offsetX: state.offsetX,
+        offsetY: state.offsetY,
+        pointerX: event.clientX - rect.left,
+        pointerY: event.clientY - rect.top,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        pageHeight: rect.height,
+      });
+      if (next.zoom === state.zoom) return;
+
+      state.setViewport(next.zoom, next.offsetX, next.offsetY);
+    };
+
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, []);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {

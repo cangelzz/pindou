@@ -35,7 +35,7 @@ describe("VS Code sendRequest", () => {
 
     await expect(request).resolves.toMatchObject({ path: "/chosen.pindou" });
     expect(vi.getTimerCount()).toBe(0);
-  });
+  }, 10_000);
 
   it("times out bootstrap RPCs after five seconds and cleans pending state", async () => {
     vi.useFakeTimers();

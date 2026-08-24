@@ -66,7 +66,7 @@ export async function captureCompositionGeometry(page: Page) {
 
 export function writeScreenshotMetadata(file: string, locale: StoreLocale, scenario: (typeof STORE_SCENARIOS)[number], geometry: Awaited<ReturnType<typeof captureCompositionGeometry>>) {
   const bytes = fs.readFileSync(file);
-  fs.writeFileSync(file.replace(/\.png$/, ".metadata.json"), `${JSON.stringify({ image: path.basename(file), locale, scenario: scenario.id, sample: scenario.sample, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), sha256: crypto.createHash("sha256").update(bytes).digest("hex"), geometry }, null, 2)}\n`);
+  fs.writeFileSync(file.replace(/\.png$/, ".metadata.json"), `${JSON.stringify({ image: path.basename(file), locale, scenario: scenario.id, sample: scenario.sample, width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), sha256: crypto.createHash("sha256").update(bytes).digest("hex"), renderPlatform: process.platform, geometry }, null, 2)}\n`);
 }
 
 export async function assertEnglishFunctionalUi(page: Page) {

@@ -55,7 +55,8 @@ jobs:
           path: platforms/vscode/test-results/
 
   test-extension:
-    runs-on: ubuntu-latest
+    # Store screenshot pixels are compared with the Ubuntu 24.04 baseline.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
