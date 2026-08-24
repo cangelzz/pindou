@@ -95,6 +95,8 @@ jobs:
             playwright-report/
 
   build:
+    # Legacy Desktop is deprecated; this job only verifies that its Tauri application still compiles.
+    name: Legacy Desktop build (compile validation only)
     needs: [test, test-vscode, test-extension]
     strategy:
       fail-fast: false
@@ -114,4 +116,5 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
-      - run: npm run tauri build
+      - name: Compile Legacy Desktop application
+        run: npm run tauri build

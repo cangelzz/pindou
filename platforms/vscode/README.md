@@ -1,5 +1,7 @@
 # PindouVerse - Bead Art Editor for VS Code
 
+> **PindouVerse for VS Code is the primary maintained platform and the recommended way to use PindouVerse.**
+
 Open and edit `.pindou` bead art projects directly inside VS Code.
 
 ![PindouVerse Screenshot](icons/screenshot.png)
@@ -32,7 +34,9 @@ No additional dependencies required. The extension works standalone.
 
 ## About PindouVerse
 
-PindouVerse (拼豆宇宙) is a cross-platform perler bead pixel art editor. This VS Code extension brings the full editor experience into your IDE. The desktop app (Windows/macOS/Linux) and mobile app are also available.
+PindouVerse (拼豆宇宙) is a perler bead pixel art editor. The VS Code extension is the primary maintained platform. Chrome and Edge browser extensions are secondary maintained platforms, while iOS and Android remain work in progress.
+
+The Desktop / Tauri client is **Legacy / Deprecated**: it no longer receives routine feature development or releases. Its source remains in the repository, and historical Desktop releases remain available from [GitHub Releases](https://github.com/cangelzz/pindouverse/releases) for existing users.
 
 - [GitHub Repository](https://github.com/cangelzz/pindouverse)
 - [Report Issues](https://github.com/cangelzz/pindouverse/issues)

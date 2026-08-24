@@ -6,6 +6,10 @@ const root = resolve(import.meta.dirname, "..");
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const ci = read(".github/workflows/ci.yml");
 const release = read(".github/workflows/release.yml");
+const rootReadme = read("README.md");
+const vscodeReadme = read("platforms/vscode/README.md");
+const claudeGuidelines = read("CLAUDE.md");
+const versioningInstructions = read(".github/instructions/versioning.instructions.md");
 const viteConfig = read("vite.config.ts");
 const rootPackage = JSON.parse(read("package.json")) as { version: string; scripts: Record<string, string> };
 const scripts = rootPackage.scripts;
@@ -111,21 +115,128 @@ describe("browser extension workflow contract", () => {
     expect(upload).toMatch(/^\s+playwright-report\/$/m);
   });
 
+  it("documents VS Code as the primary platform and browser extensions as secondary", () => {
+    expect(rootReadme).toMatch(/VS Code[^\n]*(主平台|primary)/i);
+    expect(rootReadme).toMatch(/Chrome[^\n]*Edge[^\n]*(次要|secondary)/i);
+  });
+
+  it("gives ordinary users a Marketplace install path before the VS Code source workflow", () => {
+    const vscodeSection = rootReadme.slice(
+      rootReadme.indexOf("## 1. VS Code"),
+      rootReadme.indexOf("## 2. Chrome"),
+    );
+    const marketplace = "https://marketplace.visualstudio.com/items?itemName=PindouVerse.pindouverse";
+    expect(vscodeSection).toContain(marketplace);
+    expect(vscodeSection).toMatch(/(普通用户|安装)[^\n]*Marketplace/i);
+    expect(vscodeSection).toMatch(/开发者[^\n]*源码/);
+    expect(vscodeSection.indexOf(marketplace)).toBeLessThan(vscodeSection.indexOf("```bash"));
+  });
+
+  it("labels desktop as legacy and warns about historical installers", () => {
+    expect(rootReadme).toMatch(/Desktop[^\n]*Legacy/i);
+    expect(rootReadme).toMatch(/(历史|historical)[^\n]*(安装包|installer)/i);
+    expect(rootReadme).toMatch(/(严重|serious)[^\n]*(兼容|compatibility)[^\n]*(安全|security)/i);
+  });
+
+  it("presents the VS Code extension as the primary platform without advertising the old desktop app", () => {
+    expect(vscodeReadme).toMatch(/VS Code[^\n]*(主平台|primary)/i);
+    expect(vscodeReadme).not.toContain("The desktop app (Windows/macOS/Linux) and mobile app are also available.");
+  });
+
+  it("keeps extension and legacy desktop version lines separate in contributor guidance", () => {
+    expect(claudeGuidelines).toContain(
+      "The root version system applies only to the **Legacy / Deprecated Desktop/Tauri client**",
+    );
+    expect(versioningInstructions).toContain(
+      "exclusively for the Legacy / Deprecated Desktop/Tauri client",
+    );
+    expect(claudeGuidelines).toContain(
+      "The VS Code extension has an independent version in `platforms/vscode/package.json`",
+    );
+    expect(versioningInstructions).toContain(
+      "Routine extension releases must not use `scripts/version.sh` or the Legacy Desktop release workflow",
+    );
+  });
+
+  it("reserves minor bumps for approved emergency Legacy Desktop maintenance releases", () => {
+    for (const guidance of [claudeGuidelines, versioningInstructions]) {
+      expect(guidance).not.toMatch(/minor[^\n]*feature release/i);
+      expect(guidance).toMatch(/minor[^\n]*approved emergency Legacy Desktop maintenance release/i);
+    }
+  });
+
+  it("documents manual review and publication of the prepared draft", () => {
+    for (const guidance of [claudeGuidelines, versioningInstructions]) {
+      expect(guidance).toMatch(/workflow[^\n]*only prepares? (?:a )?draft/i);
+      expect(guidance).toMatch(/maintainer[^\n]*review[^\n]*assets[^\n]*notes[^\n]*manually[^\n]*Publish/i);
+    }
+  });
+
+  it("labels the CI desktop build as legacy while preserving dependencies and Tauri build", () => {
+    const build = jobBlock(ci, "build");
+    expect(build).toContain("name: Legacy Desktop build (compile validation only)");
+    expect(build).toMatch(/needs:\s*\[test, test-vscode, test-extension\]/);
+    expect(build).toContain("npm run tauri build");
+  });
+
+  it("makes legacy desktop release an explicitly confirmed manual workflow", () => {
+    expect(release).toMatch(/^name: Legacy Desktop Release$/m);
+    const trigger = indentedBlock(release, "on:", 0);
+    expect(trigger).toMatch(/^on:\n  workflow_dispatch:/);
+    expect(trigger.match(/^  [A-Za-z_][\w-]*:/gm)).toEqual(["  workflow_dispatch:"]);
+    expect(trigger).toContain("confirm_emergency_release:");
+    const confirmationInput = indentedBlock(trigger, "confirm_emergency_release:", 6);
+    expect(confirmationInput).toContain("required: true");
+    expect(confirmationInput).toContain("type: string");
+    expect(trigger).not.toContain("bump_major:");
+  });
+
+  it("rejects legacy desktop releases unless the exact emergency confirmation is supplied", () => {
+    const confirmation = namedStep(jobBlock(release, "compute-version"), "Confirm emergency-only release");
+    expect(confirmation).toContain("CONFIRMATION: ${{ inputs.confirm_emergency_release }}");
+    expect(confirmation).toContain('if [ "${CONFIRMATION}" != "RELEASE_LEGACY_DESKTOP" ]; then');
+    expect(confirmation).toMatch(/^\s+exit 1$/m);
+  });
+
   it("gates desktop builds on every test job", () => {
     expect(jobBlock(ci, "build")).toMatch(/needs:\s*\[test, test-vscode, test-extension\]/);
   });
 
-  it("serializes idempotent draft creation before parallel asset uploads", () => {
+  it("binds version, draft, builds, and uploads to the dispatched source commit", () => {
+    const compute = jobBlock(release, "compute-version");
+    expect(compute).toContain("source_sha: ${{ steps.ver.outputs.source_sha }}");
+    expect(namedStep(compute, "Compute version")).toContain('SOURCE_SHA=$(git rev-parse HEAD)');
+    expect(namedStep(compute, "Compute version")).toContain('echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"');
+
+    const sourceRef = "ref: ${{ needs.compute-version.outputs.source_sha }}";
+    for (const name of ["build-and-upload", "finalize-release"]) {
+      expect(actionStep(jobBlock(release, name), "actions/checkout@v6")).toContain(sourceRef);
+    }
+
+    const build = jobBlock(release, "build-and-upload");
+    const buildStep = namedStep(build, "Build Legacy Desktop app");
+    expect(buildStep).toContain("uses: tauri-apps/tauri-action@v0");
+    expect(buildStep).toContain("releaseDraft: true");
+    expect(build).toContain("SOURCE_SHA: ${{ needs.compute-version.outputs.source_sha }}");
+    expect(build).toContain('ACTUAL_SHA=$(git rev-parse HEAD)');
+    expect(build).toContain('if [ "$ACTUAL_SHA" != "$SOURCE_SHA" ]; then');
+    expectOrdered(build, ["Verify source commit before upload", "Build Legacy Desktop app"]);
+  });
+
+  it("serializes an exact-commit draft before parallel asset uploads", () => {
     const draft = jobBlock(release, "create-draft-release");
     expect(draft).toContain("needs: compute-version");
     expect(draft).toContain("permissions:");
     expect(draft).toContain("contents: write");
     expect(draft).toContain("TAG: ${{ needs.compute-version.outputs.tag }}");
     expect(draft).toContain("VERSION: ${{ needs.compute-version.outputs.version }}");
+    expect(draft).toContain("SOURCE_SHA: ${{ needs.compute-version.outputs.source_sha }}");
     expect(draft).toContain("gh release view");
-    expect(draft).toContain("--json isDraft");
+    expect(draft).toContain("--json isDraft,targetCommitish");
+    expect(draft).toContain('if [ "${TARGET_COMMITISH}" != "${SOURCE_SHA}" ]; then');
     expect(draft).toContain("gh release create");
-    expect(draft).toContain("--draft");
+    expect(draft).toContain('--target "${SOURCE_SHA}"');
+    expect(draft).toMatch(/^\s+--draft\s*\\?$/m);
     expect((release.match(/^  create-draft-release:$/gm) ?? [])).toHaveLength(1);
     expect(jobBlock(release, "build-and-upload")).toContain("needs: [compute-version, create-draft-release]");
   });
@@ -145,5 +256,14 @@ describe("browser extension workflow contract", () => {
     expect(release).not.toContain("pindouverse-chrome-");
     expect(release).not.toContain("pindouverse-edge-");
     expect(jobBlock(release, "finalize-release")).toMatch(/needs:\s*\[compute-version, create-draft-release, build-and-upload\]/);
+  });
+
+  it("prepares draft release notes without any publication mutation", () => {
+    const finalize = jobBlock(release, "finalize-release");
+    expect(finalize).toContain("name: Prepare Legacy Desktop draft release notes");
+    expect(finalize).toContain("- name: Update draft release notes");
+    expect(release).not.toMatch(/--draft(?:=|\s+)false/);
+    expect(release).not.toMatch(/gh\s+release\s+(?:edit|create)[^\n]*(?:--draft(?:=|\s+)false|--latest)/);
+    expect(release).not.toMatch(/gh\s+api[^\n]*(?:\/releases\/[^\s]+|\/releases\/latest)[^\n]*\s-X\s+(?:PATCH|POST)/i);
   });
 });

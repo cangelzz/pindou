@@ -1,25 +1,35 @@
 # PindouVerse — Project Guidelines
 
-## Versioning
+## Legacy Desktop Versioning
+
+The root version system applies only to the **Legacy / Deprecated Desktop/Tauri client**.
 
 Format: `MAJOR.MINOR.COMMITS`
 
-- **MAJOR** — Big release, bump with `./scripts/version.sh --bump-major` (resets MINOR and COMMITS to 0)
-- **MINOR** — Feature release, bump with `./scripts/version.sh --bump-minor` (resets COMMITS to 0)
+- **MAJOR** — Big Legacy Desktop release, bump with `./scripts/version.sh --bump-major` (resets MINOR and COMMITS to 0)
+- **MINOR** — Approved emergency Legacy Desktop maintenance release, bump with `./scripts/version.sh --bump-minor` (resets COMMITS to 0)
 - **COMMITS** — Auto-counted commits since last `vMAJOR.MINOR.0` tag
 
 Example: `1.0.0` → `1.0.38` → (bump minor) → `1.1.0` → (bump major) → `2.0.0`
 
-Source of truth: `VERSION` file (stores `MAJOR.MINOR`).
+The root `VERSION`, `scripts/version.sh`, and `scripts/version.mjs` version system applies only to the legacy files `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`.
 
-Commands:
-- `./scripts/version.sh` — print current version
-- `./scripts/version.sh --apply` — write to package.json, tauri.conf.json, Cargo.toml
-- `./scripts/version.sh --bump-minor` — new feature release
-- `./scripts/version.sh --bump-major` — new big release
-- After bumping: `git push --tags`
+The VS Code extension has an independent version in `platforms/vscode/package.json`; keep `platforms/vscode/package-lock.json` synchronized when changing it. Routine extension releases must not use `scripts/version.sh` or the Legacy Desktop release workflow.
 
-Release: GitHub Actions → Release → Run workflow (version auto-computed).
+Legacy Desktop commands:
+- `./scripts/version.sh` — print the current Legacy Desktop version
+- `./scripts/version.sh --apply` — write the Legacy Desktop version to `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`
+- `./scripts/version.sh --bump-minor` — update `VERSION`, create the new `vMAJOR.MINOR.0` tag, then synchronize the three legacy version files
+- `./scripts/version.sh --bump-major` — update `VERSION`, create the new `vMAJOR.MINOR.0` tag, then synchronize the three legacy version files
+- After bumping, do not recreate the tag. Commit the updated version files first, then push the commit and the existing tag:
+  ```bash
+  git add VERSION package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+  git commit -m "chore: bump legacy desktop version"
+  git push
+  git push --tags
+  ```
+
+Legacy Desktop releases are emergency-only, for serious compatibility or security fixes approved by a maintainer. Use GitHub Actions → Legacy Desktop Release → Run workflow only for those approved emergencies. The workflow only prepares a draft; a maintainer must review its assets and notes, then manually click Publish.
 
 ## Git Workflow
 
